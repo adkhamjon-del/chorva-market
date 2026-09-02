@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chorva Market — V1 Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --green-deep:#1D5C3A;
+    --green-mid:#2E7D4F;
+    --cream:#FBF7EF;
+    --paper:#FFFFFF;
+    --line:#E8E1D3;
+    --ink:#22271F;
+    --sage:#6E7A6A;
+    --apricot:#E29A3C;
+    --alert:#C1443B;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#EFEAE0;
+    font-family:'Manrope',sans-serif;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    justify-content:center;
+    min-height:100vh;
+  }
+  .app{
+    width:100%;
+    max-width:440px;
+    min-height:100vh;
+    background:var(--cream);
+    position:relative;
+    box-shadow:0 0 40px rgba(0,0,0,0.12);
+    display:flex;
+    flex-direction:column;
+  }
+  .screen{display:none; flex-direction:column; flex:1; padding-bottom:86px;}
+  .screen.active{display:flex;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .display{font-family:'Fraunces',serif;}
+  a,button{font-family:inherit;}
+  button{cursor:pointer; border:none; background:none;}
+  ::selection{background:var(--apricot); color:#fff;}
+  :focus-visible{outline:2px solid var(--green-deep); outline-offset:2px;}
+
+  /* ---------- TOP BAR ---------- */
+  .topbar{
+    background:var(--green-deep);
+    color:#fff;
+    padding:18px 18px 16px;
+    border-radius:0 0 22px 22px;
+  }
+  .topbar .brand{display:flex; align-items:center; gap:9px; margin-bottom:14px;}
+  .brand .logo{
+    width:34px;height:34px;border-radius:9px;
+    background:var(--apricot);
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;
+  }
+  .brand .name{font-family:'Fraunces',serif; font-weight:600; font-size:19px; letter-spacing:0.2px;}
+  .brand .name span{opacity:.72; font-weight:400; font-size:13px; display:block; margin-top:-2px; font-family:'Manrope',sans-serif;}
+  .loc-row{display:flex; align-items:center; justify-content:space-between;}
+  .loc{display:flex; align-items:center; gap:6px; font-size:13.5px; opacity:.92;}
+  .bell{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.14); display:flex;align-items:center;justify-content:center; font-size:14px; position:relative;}
+  .bell::after{content:"";position:absolute; top:4px; right:5px; width:6px;height:6px;border-radius:50%;background:var(--apricot); border:1px solid var(--green-deep);}
+  .search-bar{
+    margin-top:14px;
+    background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.22);
+    border-radius:12px;
+    padding:11px 14px;
+    display:flex; align-items:center; gap:9px;
+    color:rgba(255,255,255,.85);
+    font-size:14px;
+  }
+  .search-bar input{
+    background:none;border:none;outline:none;color:#fff;width:100%;font-size:14px;font-family:inherit;
+  }
+  .search-bar input::placeholder{color:rgba(255,255,255,.62);}
+
+  /* ---------- CONTENT ---------- */
+  .content{padding:18px;}
+  .section-title{
+    display:flex; align-items:baseline; justify-content:space-between; margin:4px 0 12px;
+  }
+  .section-title h2{font-family:'Fraunces',serif; font-size:17px; font-weight:600; margin:0;}
+  .section-title .see-all{font-size:12.5px; color:var(--green-mid); font-weight:700;}
+
+  .cats{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:22px;}
+  .cat{
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    padding:10px 2px; border-radius:14px; background:var(--paper);
+    border:1px solid var(--line); font-size:11px; font-weight:700; color:var(--sage);
+    transition:transform .12s ease, border-color .12s ease;
+  }
+  .cat .ic{font-size:21px;}
+  .cat.active{border-color:var(--green-deep); background:#EAF3EC; color:var(--green-deep);}
+  .cat:active{transform:scale(.94);}
+
+  .feed{display:flex; flex-direction:column; gap:12px;}
+  .card{
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+    overflow:hidden; display:flex; gap:0; text-align:left; width:100%;
+    box-shadow:0 1px 2px rgba(20,20,10,.03);
+  }
+  .card .thumb{
+    width:118px; min-width:118px; background-size:cover; background-position:center; position:relative;
+  }
+  .card .thumb .badge{
+    position:absolute; top:8px; left:8px; background:rgba(29,92,58,.92); color:#fff;
+    font-size:9.5px; font-weight:700; padding:3px 7px; border-radius:20px; display:flex; align-items:center; gap:3px;
+  }
+  .card .info{padding:12px 13px; flex:1; display:flex; flex-direction:column; gap:4px;}
+  .card .title{font-size:14px; font-weight:800; line-height:1.25;}
+  .card .price{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:15px; color:var(--green-deep);}
+  .card .meta{font-size:11.5px; color:var(--sage); display:flex; flex-wrap:wrap; gap:7px; margin-top:2px;}
+  .card .bottom-row{display:flex; align-items:center; justify-content:space-between; margin-top:auto; padding-top:4px;}
+  .stars{font-size:11px; color:var(--apricot); font-weight:700;}
+  .stars span{color:var(--sage); font-weight:600;}
+  .heart{font-size:15px; color:#C9C2B0;}
+
+  .fab{
+    position:absolute; right:18px; bottom:96px;
+    background:var(--apricot); color:#fff; border-radius:50px;
+    padding:13px 18px; font-weight:800; font-size:13.5px;
+    display:flex; align-items:center; gap:7px;
+    box-shadow:0 8px 20px rgba(226,154,60,.45);
+  }
+
+  /* ---------- BOTTOM NAV ---------- */
+  .bottomnav{
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:440px; background:var(--paper); border-top:1px solid var(--line);
+    display:flex; padding:9px 6px 12px; z-index:20;
+  }
+  .navbtn{flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; font-weight:700; color:#A7A092;}
+  .navbtn .ic{font-size:19px;}
+  .navbtn.active{color:var(--green-deep);}
+
+  /* ---------- DETAIL SCREEN ---------- */
+  .subheader{
+    display:flex; align-items:center; justify-content:space-between; padding:16px 16px 4px;
+  }
+  .iconbtn{width:36px;height:36px;border-radius:50%;background:var(--paper); border:1px solid var(--line); display:flex;align-items:center;justify-content:center; font-size:15px;}
+  .hero-img{
+    margin:10px 16px 0; height:230px; border-radius:18px; background-size:cover; background-position:center; position:relative;
+  }
+  .hero-img .count{position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; padding:4px 9px; border-radius:20px; font-family:'IBM Plex Mono',monospace;}
+  .detail-body{padding:16px;}
+  .detail-title{font-family:'Fraunces',serif; font-size:21px; font-weight:600; margin:0 0 4px;}
+  .detail-price{font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; color:var(--green-deep); margin-bottom:10px;}
+  .badges-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;}
+  .vbadge{background:#EAF3EC; color:var(--green-deep); font-size:11px; font-weight:700; padding:5px 10px; border-radius:20px; display:flex; align-items:center; gap:4px;}
+  .spec-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:16px;}
+  .spec{display:flex; flex-direction:column; gap:2px;}
+  .spec .k{font-size:10.5px; color:var(--sage); text-transform:uppercase; letter-spacing:.03em; font-weight:700;}
+  .spec .v{font-size:14px; font-weight:700;}
+  .seller-card{display:flex; align-items:center; gap:11px; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:18px;}
+  .avatar{width:42px;height:42px;border-radius:50%; background:var(--green-deep); color:#fff; display:flex;align-items:center;justify-content:center; font-weight:700; font-family:'Fraunces',serif;}
+  .seller-name{font-weight:800; font-size:13.5px;}
+  .seller-meta{font-size:11.5px; color:var(--sage); margin-top:1px;}
+  .cta-row{display:flex; gap:10px;}
+  .btn{
+    padding:14px; border-radius:13px; font-weight:800; font-size:14px; text-align:center; flex:1;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .btn-primary{background:var(--green-deep); color:#fff;}
+  .btn-outline{background:var(--paper); border:1px solid var(--line); color:var(--ink); flex:0 0 52px;}
+  .free-tag{font-size:10.5px; opacity:.8; font-weight:600;}
+
+  /* ---------- ADD LISTING FLOW ---------- */
+  .progress{display:flex; gap:6px; padding:0 16px; margin-bottom:6px;}
+  .progress .seg{flex:1; height:4px; border-radius:3px; background:var(--line);}
+  .progress .seg.done{background:var(--green-deep);}
+  .step-label{padding:10px 16px 0; font-size:12px; color:var(--sage); font-weight:700; text-transform:uppercase; letter-spacing:.04em;}
+  .step-title{padding:2px 16px 14px; font-family:'Fraunces',serif; font-size:20px; font-weight:600;}
+  .type-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px; padding:0 16px;}
+  .type-card{
+    background:var(--paper); border:1.5px solid var(--line); border-radius:16px; padding:18px 10px;
+    display:flex; flex-direction:column; align-items:center; gap:8px; font-weight:800; font-size:13.5px;
+  }
+  .type-card .ic{font-size:30px;}
+  .type-card.sel{border-color:var(--green-deep); background:#EAF3EC; color:var(--green-deep);}
+
+  .upload-box{
+    margin:0 16px 14px; border:1.5px dashed #C9C2B0; border-radius:16px; padding:28px 14px;
+    display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; background:var(--paper);
+  }
+  .upload-box .ic{font-size:26px;}
+  .upload-box .t{font-weight:800; font-size:13.5px;}
+  .upload-box .s{font-size:11.5px; color:var(--sage); line-height:1.4;}
+  .shots-row{display:flex; gap:8px; padding:0 16px 16px;}
+  .shot{width:64px;height:64px;border-radius:12px; background:var(--paper); border:1px solid var(--line); display:flex;align-items:center;justify-content:center; font-size:11px; color:var(--sage); text-align:center; position:relative;}
+  .shot.filled{background-size:cover; background-position:center; border-style:solid;}
+  .shot.filled::after{content:"✓"; position:absolute; top:3px; right:3px; background:var(--green-deep); color:#fff; width:15px;height:15px;border-radius:50%; font-size:9px; display:flex;align-items:center;justify-content:center;}
+
+  .field{padding:0 16px 14px;}
+  .field label{display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;}
+  .field select, .field input{
+    width:100%; padding:13px 14px; border-radius:12px; border:1px solid var(--line); background:var(--paper);
+    font-family:inherit; font-size:14px; font-weight:600; color:var(--ink);
+  }
+  .row2{display:flex; gap:10px; padding:0 16px 14px;}
+  .row2 .field{padding:0; flex:1;}
+  .pill-select{display:flex; gap:8px; padding:0 16px 14px; flex-wrap:wrap;}
+  .pill-opt{padding:9px 14px; border-radius:20px; border:1.5px solid var(--line); font-size:12.5px; font-weight:700; background:var(--paper); color:var(--sage);}
+  .pill-opt.sel{border-color:var(--green-deep); background:var(--green-deep); color:#fff;}
+
+  .market-hint{
+    margin:0 16px 16px; background:#FDF3E4; border:1px solid #F0DBAF; border-radius:14px; padding:13px 14px;
+  }
+  .market-hint .t{font-size:11.5px; font-weight:800; color:#96631A; margin-bottom:4px; text-transform:uppercase; letter-spacing:.03em;}
+  .market-hint .r{font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; color:#7A4E12;}
+  .market-hint .avg{font-size:11px; color:#96631A; margin-top:2px;}
+
+  .preview-card{margin:0 16px 16px;}
+  .step-footer{padding:8px 16px 16px; margin-top:auto;}
+
+  /* receipt */
+  .receipt-wrap{padding:26px 16px; display:flex; flex-direction:column; align-items:center;}
+  .check-circle{
+    width:64px;height:64px;border-radius:50%; background:var(--green-deep); color:#fff; font-size:30px;
+    display:flex;align-items:center;justify-content:center; margin-bottom:14px;
+  }
+  .receipt{
+    width:100%; background:var(--paper); border-radius:16px; padding:20px 18px; position:relative;
+    box-shadow:0 6px 24px rgba(20,20,10,.08);
+  }
+  .receipt::before, .receipt::after{
+    content:""; position:absolute; left:0; right:0; height:14px;
+    background-image:radial-gradient(circle, #EFEAE0 6px, transparent 7px);
+    background-size:16px 16px; background-position:0 center; background-repeat:repeat-x;
+  }
+  .receipt::before{top:-7px;} .receipt::after{bottom:-7px; transform:rotate(180deg);}
+  .receipt-head{text-align:center; margin-bottom:14px;}
+  .receipt-head .rm{font-family:'Fraunces',serif; font-weight:700; font-size:16px;}
+  .receipt-head .rid{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--sage); margin-top:2px;}
+  .receipt-line{display:flex; justify-content:space-between; font-size:12.5px; padding:6px 0; border-bottom:1px dashed var(--line);}
+  .receipt-line .k{color:var(--sage);}
+  .receipt-line .v{font-weight:700; font-family:'IBM Plex Mono',monospace;}
+  .receipt-status{margin-top:14px; text-align:center;}
+  .status-pill{display:inline-block; background:#EAF3EC; color:var(--green-deep); font-weight:800; font-size:12px; padding:6px 16px; border-radius:20px;}
+
+  /* search */
+  .filter-row{display:flex; gap:8px; padding:14px 16px 4px; overflow-x:auto;}
+  .fchip{white-space:nowrap; padding:8px 13px; border-radius:20px; border:1px solid var(--line); background:var(--paper); font-size:12px; font-weight:700; color:var(--sage);}
+  .results-count{padding:12px 16px 6px; font-size:12.5px; color:var(--sage); font-weight:700;}
+
+  .placeholder-screen{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 30px; text-align:center; color:var(--sage);}
+  .placeholder-screen .ic{font-size:38px;}
+  .placeholder-screen .t{font-family:'Fraunces',serif; font-size:17px; color:var(--ink); font-weight:600;}
+
+  .mylist-tabs{display:flex; gap:8px; padding:14px 16px 4px;}
+  .mtab{flex:1; text-align:center; padding:9px; border-radius:11px; font-size:12.5px; font-weight:800; background:var(--paper); border:1px solid var(--line); color:var(--sage);}
+  .mtab.active{background:var(--green-deep); color:#fff; border-color:var(--green-deep);}
+  .my-card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; gap:11px; margin:0 16px 10px;}
+  .my-card img, .my-card .ph{width:58px;height:58px;border-radius:10px; background-size:cover; background-position:center;}
+  .status-badge{font-size:10px; font-weight:800; padding:3px 8px; border-radius:20px;}
+  .status-badge.active{background:#EAF3EC; color:var(--green-deep);}
+  .status-badge.sold{background:#F3EAEA; color:var(--alert);}
+  .sold-btn{margin-top:8px; font-size:11px; font-weight:800; color:var(--green-deep); border:1px solid var(--green-deep); border-radius:20px; padding:5px 10px; align-self:flex-start;}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ============ AUTH (KIRISH) ============ -->
+  <section class="screen active" id="screen-auth">
+    <div class="content" style="padding-top:60px;">
+      <div style="text-align:center; margin-bottom:28px;">
+        <div style="width:56px;height:56px;border-radius:16px;background:var(--green-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px;">🐄</div>
+        <div style="font-family:'Fraunces',serif; font-weight:600; font-size:20px;">Chorva Market</div>
+        <div style="font-size:13px; color:var(--sage); margin-top:4px;">Telefon raqamingiz orqali kiring</div>
+      </div>
+
+      <div id="authStep1">
+        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">Telefon raqami</label>
+        <input id="authPhone" placeholder="+998901234567" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:inherit; margin-bottom:12px;">
+        <button onclick="sendOtp()" style="width:100%; padding:14px; border-radius:13px; background:var(--green-deep); color:#fff; font-weight:800; font-size:14px; border:none;">Kod yuborish</button>
+        <div id="authMsg1" style="font-size:12px; color:var(--alert); margin-top:8px;"></div>
+      </div>
+
+      <div id="authStep2" style="display:none;">
+        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">SMS kod (6 xonali)</label>
+        <input id="authOtp" placeholder="123456" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:'IBM Plex Mono',monospace; margin-bottom:12px;">
+        <button onclick="verifyOtpCode()" style="width:100%; padding:14px; border-radius:13px; background:var(--green-deep); color:#fff; font-weight:800; font-size:14px; border:none;">Tasdiqlash</button>
+        <div id="authMsg2" style="font-size:12px; color:var(--alert); margin-top:8px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HOME ============ -->
+  <section class="screen" id="screen-home">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">🐄</div>
+        <div class="name">Chorva Market<span>Molni bozorga olib bormang</span></div>
+      </div>
+      <div class="loc-row">
+        <div class="loc">📍 Samarqand viloyati</div>
+        <div class="bell">🔔</div>
+      </div>
+      <div class="search-bar" onclick="showScreen('search')">
+        🔎 <input placeholder="Mol, qo'y, ot, yem-xashak qidiring..." readonly>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="cats" id="catGrid"></div>
+
+      <div class="section-title">
+        <h2>Yangi e'lonlar</h2>
+        <span class="see-all" onclick="showScreen('search')">Barchasi →</span>
+      </div>
+      <div class="feed" id="homeFeed"></div>
+    </div>
+
+    <div class="fab" onclick="startAddFlow()">➕ Mol sotish</div>
+  </section>
+
+  <!-- ============ LISTING DETAIL ============ -->
+  <section class="screen" id="screen-detail">
+    <div class="subheader">
+      <button class="iconbtn" onclick="showScreen('home')">←</button>
+      <button class="iconbtn">🤍</button>
+    </div>
+    <div class="hero-img" id="detailImg">
+      <div class="count">1 / 6</div>
+    </div>
+    <div class="detail-body">
+      <h1 class="detail-title" id="detailTitle"></h1>
+      <div class="detail-price mono" id="detailPrice"></div>
+      <div class="badges-row" id="detailBadges"></div>
+
+      <div class="spec-grid" id="detailSpecs"></div>
+
+      <div class="seller-card">
+        <div class="avatar" id="sellerInitial"></div>
+        <div>
+          <div class="seller-name" id="sellerName"></div>
+          <div class="seller-meta" id="sellerMeta"></div>
+        </div>
+      </div>
+
+      <div class="cta-row">
+        <div class="btn btn-primary" onclick="alert('Demo: aloqa ma\'lumotlari shu yerda ochiladi (bepul).')">
+          📞 Aloqaga chiqish<br><span class="free-tag">&nbsp;</span>
+        </div>
+        <div class="btn btn-outline">📤</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ADD FLOW — STEP 1: TYPE ============ -->
+  <section class="screen" id="screen-add1">
+    <div class="subheader">
+      <button class="iconbtn" onclick="showScreen('home')">✕</button>
+      <div style="font-weight:800; font-size:13px;">Mol sotish</div>
+      <div style="width:36px;"></div>
+    </div>
+    <div class="progress"><div class="seg done"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+    <div class="step-label">1-qadam</div>
+    <div class="step-title">Hayvon turini tanlang</div>
+    <div class="type-grid" id="typeGrid"></div>
+    <div class="step-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="goStep(2)">Keyingi →</button>
+    </div>
+  </section>
+
+  <!-- ============ ADD FLOW — STEP 2: PHOTOS + INFO ============ -->
+  <section class="screen" id="screen-add2">
+    <div class="subheader">
+      <button class="iconbtn" onclick="goStep(1)">←</button>
+      <div style="font-weight:800; font-size:13px;">Mol sotish</div>
+      <div style="width:36px;"></div>
+    </div>
+    <div class="progress"><div class="seg done"></div><div class="seg done"></div><div class="seg"></div><div class="seg"></div></div>
+    <div class="step-label">2-qadam</div>
+    <div class="step-title">Rasm va ma'lumotlar</div>
+
+    <div class="upload-box" onclick="fillShots()">
+      <div class="ic">📸</div>
+      <div class="t">Rasm yoki video yuklang</div>
+      <div class="s">Yon, old va orqa tomondan aniq surat oling.<br>AI sifatni tekshiradi.</div>
+    </div>
+    <div class="shots-row" id="shotsRow"></div>
+
+    <div class="field"><label>Zot / Naslining turi</label>
+      <select><option>Simmental</option><option>Angus</option><option>Holstein</option><option>Qizil cho'l</option><option>Mahalliy</option></select>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Jinsi</label><select><option>Buqa</option><option>Sigir</option><option>G'unajin</option></select></div>
+      <div class="field"><label>Yoshi</label><input placeholder="2 yil 3 oy"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Vazni (kg)</label><input placeholder="Taxminan 472" value="472"></div>
+      <div class="field"><label>Rangi</label><select><option>Qizil-oq</option><option>Qora</option><option>Oq</option><option>Qo'ng'ir</option></select></div>
+    </div>
+    <div class="field"><label>Holati</label>
+      <div class="pill-select" style="padding:0;">
+        <div class="pill-opt sel" onclick="selectPill(this)">🟢 Sog'lom</div><div class="pill-opt" onclick="selectPill(this)">🟡 O'rtacha</div><div class="pill-opt" onclick="selectPill(this)">🔴 Davolanishda</div>
+      </div>
+    </div>
+    <div class="field"><label>Maqsadi</label>
+      <div class="pill-select" style="padding:0;">
+        <div class="pill-opt sel" onclick="selectPill(this)">🥩 Go'sht</div><div class="pill-opt" onclick="selectPill(this)">🥛 Sut</div><div class="pill-opt" onclick="selectPill(this)">🧬 Nasl</div>
+      </div>
+    </div>
+
+    <div class="step-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="goStep(3)">Keyingi →</button>
+    </div>
+  </section>
+
+  <!-- ============ ADD FLOW — STEP 3: PRICE + LOCATION ============ -->
+  <section class="screen" id="screen-add3">
+    <div class="subheader">
+      <button class="iconbtn" onclick="goStep(2)">←</button>
+      <div style="font-weight:800; font-size:13px;">Mol sotish</div>
+      <div style="width:36px;"></div>
+    </div>
+    <div class="progress"><div class="seg done"></div><div class="seg done"></div><div class="seg done"></div><div class="seg"></div></div>
+    <div class="step-label">3-qadam</div>
+    <div class="step-title">Narx va hudud</div>
+
+    <div class="field"><label>Sizning narxingiz (so'm)</label><input class="mono" id="priceInput" value="25 000 000"></div>
+    <div class="row2">
+      <div class="field"><label>Viloyat</label><select><option>Samarqand viloyati</option><option>Toshkent viloyati</option><option>Buxoro viloyati</option></select></div>
+      <div class="field"><label>Tuman</label><select><option>Pastdarg'om tumani</option><option>Payariq tumani</option></select></div>
+    </div>
+
+    <div class="market-hint">
+      <div class="t">Bu hududdagi bozor narxi</div>
+      <div class="r">22 000 000 – 28 000 000 so'm</div>
+      <div class="avg">O'rtacha: 25 100 000 so'm asosida</div>
+    </div>
+
+    <div class="step-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="goStep(4)">E'lonni ko'rish →</button>
+    </div>
+  </section>
+
+  <!-- ============ ADD FLOW — STEP 4: PREVIEW + PUBLISH ============ -->
+  <section class="screen" id="screen-add4">
+    <div class="subheader">
+      <button class="iconbtn" onclick="goStep(3)">←</button>
+      <div style="font-weight:800; font-size:13px;">Mol sotish</div>
+      <div style="width:36px;"></div>
+    </div>
+    <div class="progress"><div class="seg done"></div><div class="seg done"></div><div class="seg done"></div><div class="seg done"></div></div>
+    <div class="step-label">4-qadam</div>
+    <div class="step-title">E'loningizni tekshiring</div>
+
+    <div class="preview-card">
+      <div class="card" style="flex-direction:column;">
+        <div class="thumb" style="width:100%; height:170px; background-image:url('https://picsum.photos/seed/simmental1/500/340');">
+          <div class="badge">🆕 Yangi</div>
+        </div>
+        <div class="info">
+          <div class="title">Simmental buqa</div>
+          <div class="price mono">25 000 000 so'm</div>
+          <div class="meta">
+            <span>⚖️ ~472 kg</span><span>📅 2 yil 3 oy</span><span>📍 Samarqand vil.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="market-hint" style="background:#EAF3EC; border-color:#CFE4D4;">
+      <div class="t" style="color:var(--green-deep);">E'lon bepul joylanadi</div>
+      <div class="r" style="color:var(--green-deep); font-size:13px;">Chorva Market boshlang'ich bosqichda barcha e'lonlar bepul.</div>
+    </div>
+
+    <div class="step-footer">
+      <button class="btn btn-primary" style="width:100%" onclick="publishListing()">✅ E'lonni joylashtirish</button>
+    </div>
+  </section>
+
+  <!-- ============ RECEIPT / SUCCESS ============ -->
+  <section class="screen" id="screen-receipt">
+    <div class="receipt-wrap">
+      <div class="check-circle">✓</div>
+      <div class="display" style="font-size:19px; font-weight:600; margin-bottom:2px;">E'lon joylandi!</div>
+      <div style="color:var(--sage); font-size:13px; margin-bottom:20px; text-align:center;">Xaridorlar endi e'loningizni ko'ra oladi.</div>
+
+      <div class="receipt">
+        <div class="receipt-head">
+          <div class="rm">🐄 CHORVA MARKET — E'LON CHEKI</div>
+          <div class="rid">№ CM-284719 &nbsp;•&nbsp; 29.08.2026</div>
+        </div>
+        <div class="receipt-line"><span class="k">Hayvon</span><span class="v">Qoramol</span></div>
+        <div class="receipt-line"><span class="k">Zot</span><span class="v">Simmental</span></div>
+        <div class="receipt-line"><span class="k">Jinsi / Yoshi</span><span class="v">Buqa / 2 y 3 o</span></div>
+        <div class="receipt-line"><span class="k">Vazni</span><span class="v">~472 kg</span></div>
+        <div class="receipt-line"><span class="k">Narxi</span><span class="v">25 000 000 so'm</span></div>
+        <div class="receipt-line"><span class="k">Hudud</span><span class="v">Samarqand vil.</span></div>
+        <div class="receipt-line" style="border-bottom:none;"><span class="k">Muddati</span><span class="v">30 kun</span></div>
+        <div class="receipt-status"><span class="status-pill">🟢 E'LON FAOL</span></div>
+      </div>
+
+      <div class="step-footer" style="width:100%;">
+        <button class="btn btn-primary" style="width:100%" onclick="showScreen('mylistings')">Mening e'lonlarim</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SEARCH ============ -->
+  <section class="screen" id="screen-search">
+    <div class="topbar" style="border-radius:0 0 18px 18px; padding-bottom:14px;">
+      <div class="loc-row" style="margin-bottom:10px;">
+        <button class="iconbtn" style="background:rgba(255,255,255,.14); border:none; color:#fff;" onclick="showScreen('home')">←</button>
+        <div style="font-weight:800; font-size:14px;">Qidirish</div>
+        <div style="width:36px;"></div>
+      </div>
+      <div class="search-bar"><input placeholder="Mol, qo'y, ot, yem-xashak qidiring..." autofocus></div>
+    </div>
+    <div class="filter-row">
+      <div class="fchip">Hudud ▾</div><div class="fchip">Narx ▾</div><div class="fchip">Vazn ▾</div><div class="fchip">Zot ▾</div><div class="fchip">Sog'liq ▾</div>
+    </div>
+    <div class="results-count" id="resultsCount"></div>
+    <div class="content" style="padding-top:0;">
+      <div class="feed" id="searchFeed"></div>
+    </div>
+  </section>
+
+  <!-- ============ MY LISTINGS ============ -->
+  <section class="screen" id="screen-mylistings">
+    <div class="topbar" style="border-radius:0 0 18px 18px; padding-bottom:14px;">
+      <div style="font-weight:800; font-size:14px;">Mening e'lonlarim</div>
+    </div>
+    <div class="mylist-tabs">
+      <div class="mtab active">🟢 Faol (2)</div>
+      <div class="mtab">🔴 Sotilgan (1)</div>
+    </div>
+    <div style="margin-top:12px;" id="myListFeed"></div>
+  </section>
+
+  <!-- ============ MESSAGES (placeholder) ============ -->
+  <section class="screen" id="screen-messages">
+    <div class="topbar" style="border-radius:0 0 18px 18px; padding-bottom:14px;">
+      <div style="font-weight:800; font-size:14px;">Xabarlar</div>
+    </div>
+    <div class="placeholder-screen">
+      <div class="ic">💬</div>
+      <div class="t">Hozircha xabarlar yo'q</div>
+      <div style="font-size:12.5px;">Xaridor aloqaga chiqqanda, suhbat shu yerda ochiladi.</div>
+    </div>
+  </section>
+
+  <!-- ============ PROFILE (placeholder) ============ -->
+  <section class="screen" id="screen-profile">
+    <div class="topbar" style="border-radius:0 0 18px 18px; padding-bottom:18px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div class="avatar" style="background:var(--apricot); width:50px; height:50px; font-size:18px;">RQ</div>
+        <div>
+          <div style="font-weight:800; font-size:15px;">Rustam Qodirov</div>
+          <div style="font-size:12px; opacity:.85;">⭐ 4.8 · 📱 Telefon tasdiqlangan</div>
+        </div>
+      </div>
+    </div>
+    <div class="placeholder-screen">
+      <div class="ic">👤</div>
+      <div class="t">Profil sozlamalari</div>
+      <div style="font-size:12.5px;">Sozlamalar, tasdiqlashlar va yordam shu yerda bo'ladi.</div>
+    </div>
+  </section>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <nav class="bottomnav" id="bottomNav">
+    <button class="navbtn active" data-tab="home" onclick="tabTo('home')"><span class="ic">🏠</span>Bosh sahifa</button>
+    <button class="navbtn" data-tab="search" onclick="tabTo('search')"><span class="ic">🔎</span>Qidirish</button>
+    <button class="navbtn" data-tab="add" onclick="startAddFlow()"><span class="ic">➕</span>Sotish</button>
+    <button class="navbtn" data-tab="messages" onclick="tabTo('messages')"><span class="ic">💬</span>Xabarlar</button>
+    <button class="navbtn" data-tab="profile" onclick="tabTo('profile')"><span class="ic">👤</span>Profil</button>
+  </nav>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = 'https://ujleiylegjkcqtuppwmj.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_mVeDHWdvWovZQfDyT0eE_Q_crDKdzLZ';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function sendOtp(){
+  const phoneRaw = document.getElementById('authPhone').value.trim();
+  const msg = document.getElementById('authMsg1');
+  msg.textContent = '';
+  if(!phoneRaw.startsWith('+') || phoneRaw.length < 12){
+    msg.textContent = "Iltimos, +998 bilan boshlanadigan to'liq raqam kiriting.";
+    return;
+  }
+  const { error } = await sb.auth.signInWithOtp({ phone: phoneRaw });
+  if(error){
+    msg.textContent = 'Xato: ' + error.message;
+    return;
+  }
+  document.getElementById('authStep1').style.display = 'none';
+  document.getElementById('authStep2').style.display = 'block';
+}
+
+async function verifyOtpCode(){
+  const phoneRaw = document.getElementById('authPhone').value.trim();
+  const code = document.getElementById('authOtp').value.trim();
+  const msg = document.getElementById('authMsg2');
+  msg.textContent = '';
+  const { data, error } = await sb.auth.verifyOtp({ phone: phoneRaw, token: code, type: 'sms' });
+  if(error){
+    msg.textContent = 'Xato: ' + error.message;
+    return;
+  }
+  showScreen('home');
+}
+
+async function checkSession(){
+  const { data } = await sb.auth.getSession();
+  if(data.session){
+    showScreen('home');
+  }
+}
+checkSession();
+</script>
+<script>
+const CATEGORIES = [
+  {id:'qoramol', name:'Qoramol', icon:'🐄'},
+  {id:'qoy', name:"Qo'y", icon:'🐑'},
+  {id:'ot', name:'Ot', icon:'🐎'},
+  {id:'echki', name:'Echki', icon:'🐐'},
+  {id:'yem', name:'Yem-xashak', icon:'🌾'},
+];
+
+const LISTINGS = [
+  {id:1, cat:'qoramol', title:'Simmental buqa', price:'25 000 000', img:'simmental1', weight:'~472 kg', age:'2 y 3 o', region:'Samarqand vil.', rating:4.8, reviews:12, verified:['📱','🩺'], seller:'Rustam Qodirov', sellerMeta:'35 e\'lon · 2 yil platformada', color:'Qizil-oq', gender:'Buqa', health:"Sog'lom", purpose:"Go'sht uchun"},
+  {id:2, cat:'qoramol', title:'Angus sigir', price:'18 000 000', img:'angus1', weight:'~420 kg', age:'3 y', region:'Jizzax vil.', rating:4.7, reviews:8, verified:['📱'], seller:'Sherzod Fermer', sellerMeta:'19 e\'lon · 1 yil platformada', color:'Qora', gender:'Sigir', health:"Sog'lom", purpose:'Sut uchun'},
+  {id:3, cat:'qoy', title:"Qo'y (edilboy)", price:'4 500 000', img:'sheep1', weight:'~70 kg', age:'1.5 y', region:'Buxoro vil.', rating:4.6, reviews:5, verified:['📱','🩺'], seller:'Aziz Chorvador', sellerMeta:'62 e\'lon · 3 yil platformada', color:'Oq', gender:"Qo'chqor", health:"Sog'lom", purpose:"Go'sht uchun"},
+  {id:4, cat:'ot', title:"Ot (Qirg'iz oti)", price:'22 000 000', img:'horse1', weight:'~480 kg', age:'4 y', region:'Toshkent vil.', rating:4.9, reviews:14, verified:['📱','🩺','🪪'], seller:'Otabek Yusupov', sellerMeta:'8 e\'lon · 4 yil platformada', color:"Qo'ng'ir", gender:'Ayg\'ir', health:"Sog'lom", purpose:'Nasl uchun'},
+  {id:5, cat:'echki', title:'Echki', price:'2 800 000', img:'goat1', weight:'~45 kg', age:'1 y', region:"Qashqadaryo vil.", rating:4.5, reviews:3, verified:['📱'], seller:'Dilshod Aka', sellerMeta:'11 e\'lon · 8 oy platformada', color:'Oq', gender:'Echki', health:"Sog'lom", purpose:"Go'sht uchun"},
+  {id:6, cat:'qoramol', title:"G'unajin", price:'15 000 000', img:'cow2', weight:'~310 kg', age:'1 y 4 o', region:'Samarqand vil.', rating:4.4, reviews:2, verified:['📱'], seller:'Rustam Qodirov', sellerMeta:'35 e\'lon · 2 yil platformada', color:'Qora-oq', gender:"G'unajin", health:"Sog'lom", purpose:'Semirtirish uchun'},
+];
+
+let activeCat = 'all';
+
+function catChip(c, isAll){
+  const active = activeCat === (isAll ? 'all' : c.id);
+  return `<button class="cat ${active?'active':''}" onclick="filterCat('${isAll?'all':c.id}')">
+    <span class="ic">${isAll?'🗂️':c.icon}</span>${isAll?'Barchasi':c.name}
+  </button>`;
+}
+
+function renderCats(){
+  const grid = document.getElementById('catGrid');
+  grid.innerHTML = catChip({}, true) + CATEGORIES.slice(0,4).map(c=>catChip(c,false)).join('');
+}
+
+function filterCat(id){
+  activeCat = id;
+  renderCats();
+  renderHomeFeed();
+}
+
+function cardHTML(l){
+  return `<div class="card" onclick="openDetail(${l.id})" style="cursor:pointer;">
+    <div class="thumb" style="background-image:url('https://picsum.photos/seed/${l.img}/300/300');">
+      <div class="badge">✓ Tasdiqlangan</div>
+    </div>
+    <div class="info">
+      <div class="title">${l.title}</div>
+      <div class="price mono">${l.price} so'm</div>
+      <div class="meta"><span>⚖️ ${l.weight}</span><span>📅 ${l.age}</span></div>
+      <div class="meta">📍 ${l.region}</div>
+      <div class="bottom-row">
+        <div class="stars">★ ${l.rating} <span>(${l.reviews})</span></div>
+        <div class="heart">🤍</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderHomeFeed(){
+  const list = activeCat==='all' ? LISTINGS : LISTINGS.filter(l=>l.cat===activeCat);
+  document.getElementById('homeFeed').innerHTML = list.map(cardHTML).join('') || `<div class="placeholder-screen"><div class="ic">🐄</div><div class="t">Bu turdagi e'lon topilmadi</div></div>`;
+}
+
+function renderSearchFeed(){
+  document.getElementById('searchFeed').innerHTML = LISTINGS.map(cardHTML).join('');
+  document.getElementById('resultsCount').textContent = `${LISTINGS.length} ta e'lon topildi`;
+}
+
+function renderTypeGrid(){
+  document.getElementById('typeGrid').innerHTML = CATEGORIES.filter(c=>c.id!=='yem').map((c,i)=>`
+    <div class="type-card ${i===0?'sel':''}" onclick="selectType(this)">
+      <div class="ic">${c.icon}</div>${c.name}
+    </div>`).join('');
+}
+function selectType(el){
+  document.querySelectorAll('.type-card').forEach(t=>t.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function selectPill(el){
+  Array.from(el.parentElement.children).forEach(p=>p.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function renderShots(){
+  document.getElementById('shotsRow').innerHTML = `
+    <div class="shot" onclick="fillShots()">+ Yon</div>
+    <div class="shot" onclick="fillShots()">+ Old</div>
+    <div class="shot" onclick="fillShots()">+ Orqa</div>
+    <div class="shot" onclick="fillShots()">🎥 Video</div>`;
+}
+function fillShots(){
+  const shots = document.querySelectorAll('.shot');
+  shots.forEach((s,i)=>{
+    if(!s.classList.contains('filled') && i<3){
+      s.classList.add('filled');
+      s.style.backgroundImage = `url('https://picsum.photos/seed/shot${i}/150/150')`;
+      s.textContent='';
+      return;
+    }
+  });
+}
+
+function renderMyListings(){
+  const items = [
+    {title:'Simmental buqa', price:'25 000 000', img:'simmental1', status:'active'},
+    {title:"G'unajin", price:'15 000 000', img:'cow2', status:'active'},
+    {title:'Angus sigir', price:'18 000 000', img:'angus1', status:'sold'},
+  ];
+  document.getElementById('myListFeed').innerHTML = items.map(it=>`
+    <div class="my-card">
+      <div class="ph" style="background-image:url('https://picsum.photos/seed/${it.img}/150/150')"></div>
+      <div style="flex:1;">
+        <div style="font-weight:800; font-size:13.5px;">${it.title}</div>
+        <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${it.price} so'm</div>
+        <span class="status-badge ${it.status==='active'?'active':'sold'}">${it.status==='active'?'🟢 FAOL':'🔴 SOTILDI'}</span>
+        ${it.status==='active' ? '<div><button class="sold-btn" onclick="alert(\'Demo: bu mol sotilgan deb belgilanadi.\')">✅ Sotildi</button></div>' : ''}
+      </div>
+    </div>`).join('');
+}
+
+function openDetail(id){
+  const l = LISTINGS.find(x=>x.id===id);
+  document.getElementById('detailImg').style.backgroundImage = `url('https://picsum.photos/seed/${l.img}big/700/500')`;
+  document.getElementById('detailTitle').textContent = l.title;
+  document.getElementById('detailPrice').textContent = l.price + " so'm";
+  document.getElementById('detailBadges').innerHTML =
+    `<span class="vbadge">📱 Telefon tasdiqlangan</span>` +
+    (l.verified.includes('🩺') ? `<span class="vbadge">🩺 Veterinar tasdiqlagan</span>`:'') +
+    (l.verified.includes('🪪') ? `<span class="vbadge">🪪 Shaxs tasdiqlangan</span>`:'');
+  document.getElementById('detailSpecs').innerHTML = `
+    <div class="spec"><span class="k">Zot</span><span class="v">${l.title.split(' ')[0]}</span></div>
+    <div class="spec"><span class="k">Jinsi</span><span class="v">${l.gender}</span></div>
+    <div class="spec"><span class="k">Yoshi</span><span class="v">${l.age}</span></div>
+    <div class="spec"><span class="k">Vazni</span><span class="v">${l.weight}</span></div>
+    <div class="spec"><span class="k">Rangi</span><span class="v">${l.color}</span></div>
+    <div class="spec"><span class="k">Holati</span><span class="v">${l.health}</span></div>
+    <div class="spec"><span class="k">Maqsadi</span><span class="v">${l.purpose}</span></div>
+    <div class="spec"><span class="k">Hudud</span><span class="v">${l.region}</span></div>`;
+  document.getElementById('sellerInitial').textContent = l.seller.split(' ').map(w=>w[0]).join('').slice(0,2);
+  document.getElementById('sellerName').textContent = l.seller;
+  document.getElementById('sellerMeta').textContent = `⭐ ${l.rating} · ${l.sellerMeta}`;
+  showScreen('detail');
+}
+
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
+  const nav = document.getElementById('bottomNav');
+  const tabScreens = ['home','search','messages','profile','mylistings'];
+  nav.style.display = tabScreens.includes(name) ? 'flex' : 'none';
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.remove('active'));
+  const map = {home:'home', search:'search', messages:'messages', profile:'profile'};
+  if(map[name]) document.querySelector(`.navbtn[data-tab="${map[name]}"]`).classList.add('active');
+  window.scrollTo(0,0);
+}
+function tabTo(name){ showScreen(name); }
+
+function startAddFlow(){ goStep(1); }
+function goStep(n){ showScreen('add'+n); }
+
+function publishListing(){
+  showScreen('receipt');
+}
+
+renderCats();
+renderHomeFeed();
+renderSearchFeed();
+renderTypeGrid();
+renderShots();
+renderMyListings();
+</script>
+</body>
+</html>
