@@ -344,11 +344,12 @@
       </div>
 
       <div class="cta-row">
-        <div class="btn btn-primary" onclick="alert('Demo: aloqa ma\'lumotlari shu yerda ochiladi (bepul).')">
+        <div class="btn btn-primary" onclick="revealPhone()">
           📞 Aloqaga chiqish<br><span class="free-tag">&nbsp;</span>
         </div>
         <div class="btn btn-outline">📤</div>
       </div>
+      <button onclick="reportListing()" style="width:100%; margin-top:10px; background:none; border:none; color:var(--sage); font-size:12px; font-weight:700;">⚠️ Bu e'londa muammo bor</button>
     </div>
   </section>
 
@@ -555,17 +556,39 @@
   <section class="screen" id="screen-profile">
     <div class="topbar" style="border-radius:0 0 18px 18px; padding-bottom:18px;">
       <div style="display:flex; align-items:center; gap:12px;">
-        <div class="avatar" style="background:var(--apricot); width:50px; height:50px; font-size:18px;">RQ</div>
+        <div class="avatar" style="background:var(--apricot); width:50px; height:50px; font-size:18px;" id="profileAvatar">?</div>
         <div>
-          <div style="font-weight:800; font-size:15px;">Rustam Qodirov</div>
-          <div style="font-size:12px; opacity:.85;">⭐ 4.8 · 📱 Telefon tasdiqlangan</div>
+          <div style="font-weight:800; font-size:15px;" id="profileNameDisplay">Foydalanuvchi</div>
+          <div style="font-size:12px; opacity:.85;" id="profileMetaDisplay"></div>
         </div>
       </div>
     </div>
-    <div class="placeholder-screen">
-      <div class="ic">👤</div>
-      <div class="t">Profil sozlamalari</div>
-      <div style="font-size:12.5px;">Sozlamalar, tasdiqlashlar va yordam shu yerda bo'ladi.</div>
+    <div class="content">
+      <div class="field"><label>To'liq ismingiz</label><input id="profileNameInput" placeholder="Masalan: Rustam Qodirov"></div>
+      <div class="field"><label>Telefon raqamingiz</label><input id="profilePhoneInput" placeholder="+998901234567"></div>
+      <div class="field"><label>Viloyat</label>
+        <select id="profileRegionInput"><option>Samarqand viloyati</option><option>Toshkent viloyati</option><option>Buxoro viloyati</option></select>
+      </div>
+      <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="saveProfile()">Saqlash</button>
+      <div id="profileMsg" style="font-size:12px; color:var(--green-deep); margin-top:8px;"></div>
+      <button class="btn btn-outline" style="width:100%; margin-top:20px; color:var(--alert);" onclick="signOutUser()">Chiqish</button>
+    </div>
+  </section>
+
+  <!-- ============ PROFILE COMPLETION (majburiy, birinchi kirishda) ============ -->
+  <section class="screen" id="screen-complete-profile">
+    <div class="content" style="padding-top:50px;">
+      <div style="text-align:center; margin-bottom:22px;">
+        <div style="font-family:'Fraunces',serif; font-weight:600; font-size:19px;">Profilni to'ldiring</div>
+        <div style="font-size:13px; color:var(--sage); margin-top:6px;">Xaridorlar siz bilan bog'lanishi uchun ism va telefon raqami kerak.</div>
+      </div>
+      <div class="field"><label>To'liq ismingiz</label><input id="cpNameInput" placeholder="Masalan: Rustam Qodirov"></div>
+      <div class="field"><label>Telefon raqamingiz</label><input id="cpPhoneInput" placeholder="+998901234567"></div>
+      <div class="field"><label>Viloyat</label>
+        <select id="cpRegionInput"><option>Samarqand viloyati</option><option>Toshkent viloyati</option><option>Buxoro viloyati</option></select>
+      </div>
+      <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="completeProfile()">Davom etish</button>
+      <div id="cpMsg" style="font-size:12px; color:var(--alert); margin-top:8px;"></div>
     </div>
   </section>
 
@@ -609,13 +632,13 @@ async function emailAuth(){
     msg.textContent = "Ro'yxatdan o'tildi, lekin sessiya ochilmadi — 'Confirm email' o'chirilganini tekshiring.";
     return;
   }
-  showScreen('home');
+  initAfterLogin();
 }
 
 async function checkSession(){
   const { data } = await sb.auth.getSession();
   if(data.session){
-    showScreen('home');
+    initAfterLogin();
   }
 }
 checkSession();
@@ -831,6 +854,7 @@ async function deleteListing(id){
 }
 
 async function openDetail(id){
+  openListingId = id;
   let l = dbListingsCache.find(x => String(x.id) === String(id));
   if(!l){
     const { data } = await sb.from('listings').select('*, listing_images(url, sort_order)').eq('id', id).single();
@@ -871,6 +895,7 @@ function showScreen(name){
   if(name==='home') loadHomeFeed();
   if(name==='search') loadSearchFeed();
   if(name==='mylistings') loadMyListings();
+  if(name==='profile') loadProfileScreen();
 }
 function tabTo(name){ showScreen(name); }
 
@@ -951,7 +976,82 @@ async function publishListing(){
 async function initAfterLogin(){
   const { data: { user } } = await sb.auth.getUser();
   currentUser = user;
-  loadHomeFeed();
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if(!profile || !profile.full_name || !profile.phone){
+    showScreen('complete-profile');
+    return;
+  }
+  showScreen('home');
+}
+
+async function completeProfile(){
+  const name = document.getElementById('cpNameInput').value.trim();
+  const phone = document.getElementById('cpPhoneInput').value.trim();
+  const region = document.getElementById('cpRegionInput').value;
+  const msg = document.getElementById('cpMsg');
+  if(!name || !phone.startsWith('+')){
+    msg.textContent = "Iltimos, ismingizni va +998 bilan boshlanadigan telefon raqamingizni kiriting.";
+    return;
+  }
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region }).eq('id', user.id);
+  if(error){
+    msg.textContent = 'Xato: ' + error.message;
+    return;
+  }
+  showScreen('home');
+}
+
+async function loadProfileScreen(){
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user) return;
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if(profile){
+    document.getElementById('profileNameInput').value = profile.full_name || '';
+    document.getElementById('profilePhoneInput').value = profile.phone || '';
+    if(profile.region) document.getElementById('profileRegionInput').value = profile.region;
+    document.getElementById('profileNameDisplay').textContent = profile.full_name || 'Foydalanuvchi';
+    document.getElementById('profileAvatar').textContent = (profile.full_name || '?').split(' ').map(w=>w[0]).join('').slice(0,2);
+    document.getElementById('profileMetaDisplay').textContent = `⭐ ${profile.rating || 0} · ${profile.listings_count || 0} e'lon`;
+  }
+}
+
+async function saveProfile(){
+  const name = document.getElementById('profileNameInput').value.trim();
+  const phone = document.getElementById('profilePhoneInput').value.trim();
+  const region = document.getElementById('profileRegionInput').value;
+  const msg = document.getElementById('profileMsg');
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region }).eq('id', user.id);
+  if(error){ msg.style.color = 'var(--alert)'; msg.textContent = 'Xato: ' + error.message; return; }
+  msg.style.color = 'var(--green-deep)';
+  msg.textContent = 'Saqlandi.';
+  loadProfileScreen();
+}
+
+async function signOutUser(){
+  await sb.auth.signOut();
+  location.reload();
+}
+
+let openListingId = null;
+async function revealPhone(){
+  if(!openListingId) return;
+  const { data, error } = await sb.rpc('reveal_seller_phone', { p_listing_id: openListingId });
+  if(error){ alert('Xato: ' + error.message); return; }
+  if(!data){ alert("Sotuvchi telefon raqamini hali kiritmagan."); return; }
+  alert('Sotuvchi telefoni: ' + data);
+}
+
+async function reportListing(){
+  if(!openListingId) return;
+  const reason = prompt("Nima uchun shikoyat qilyapsiz? (masalan: rasm molga tegishli emas, soxta e'lon, noto'g'ri narx)");
+  if(!reason) return;
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user){ alert('Avval tizimga kiring.'); return; }
+  const { error } = await sb.from('reports').insert({ listing_id: openListingId, reporter_id: user.id, reason });
+  if(error){ alert('Xato: ' + error.message); return; }
+  alert("Shikoyatingiz qabul qilindi, ko'rib chiqamiz.");
 }
 
 renderCats();
