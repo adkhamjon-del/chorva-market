@@ -380,12 +380,14 @@
     <div class="step-label">2-qadam</div>
     <div class="step-title">Rasm va ma'lumotlar</div>
 
-    <div class="upload-box" onclick="fillShots()">
+    <div class="upload-box" onclick="document.getElementById('realFileInput').click()">
       <div class="ic">📸</div>
       <div class="t">Rasm yoki video yuklang</div>
-      <div class="s">Yon, old va orqa tomondan aniq surat oling.<br>AI sifatni tekshiradi.</div>
+      <div class="s">Yon, old va orqa tomondan aniq surat oling.</div>
     </div>
+    <input type="file" id="realFileInput" accept="image/*" multiple capture="environment" style="display:none" onchange="handleFileSelect(event)">
     <div class="shots-row" id="shotsRow"></div>
+    <div id="uploadStatus" style="padding:0 16px 10px; font-size:11.5px; color:var(--sage);"></div>
 
     <div class="field"><label>Zot / Naslining turi</label>
       <select id="breedInput"><option>Simmental</option><option>Angus</option><option>Holstein</option><option>Qizil cho'l</option><option>Mahalliy</option></select>
@@ -655,7 +657,7 @@ const HEALTH_LABEL = {soglom:"Sog'lom", ortacha:"O'rtacha", davolanishda:'Davola
 const PURPOSE_LABEL = {gosht:"Go'sht uchun", sut:'Sut uchun', nasl:'Nasl uchun', semirtirish:'Semirtirish uchun'};
 
 function cardHTML(l){
-  const img = `https://picsum.photos/seed/listing${l.id}/300/300`;
+  const img = firstImage(l);
   const rating = l.sellerProfile?.rating || 0;
   const reviews = l.sellerProfile?.rating_count || 0;
   return `<div class="card" onclick="openDetail('${l.id}')" style="cursor:pointer;">
@@ -678,7 +680,7 @@ function cardHTML(l){
 let dbListingsCache = [];
 
 async function fetchListings(cat){
-  let query = sb.from('listings').select('*').eq('status','active').order('created_at', {ascending:false}).limit(30);
+  let query = sb.from('listings').select('*, listing_images(url, sort_order)').eq('status','active').order('created_at', {ascending:false}).limit(30);
   if(cat && cat !== 'all') query = query.eq('category', cat);
   const { data: listings, error } = await query;
   if(error){ console.error(error); return []; }
@@ -689,6 +691,13 @@ async function fetchListings(cat){
     (profs||[]).forEach(p=>profilesMap[p.id]=p);
   }
   return listings.map(l=>({...l, sellerProfile: profilesMap[l.seller_id]}));
+}
+function firstImage(l){
+  if(l.listing_images && l.listing_images.length){
+    const sorted = [...l.listing_images].sort((a,b)=>a.sort_order-b.sort_order);
+    return sorted[0].url;
+  }
+  return `https://picsum.photos/seed/listing${l.id}/300/300`;
 }
 
 async function loadHomeFeed(){
@@ -726,22 +735,43 @@ function selectedPillValue(containerId){
 }
 
 function renderShots(){
-  document.getElementById('shotsRow').innerHTML = `
-    <div class="shot" onclick="fillShots()">+ Yon</div>
-    <div class="shot" onclick="fillShots()">+ Old</div>
-    <div class="shot" onclick="fillShots()">+ Orqa</div>
-    <div class="shot" onclick="fillShots()">🎥 Video</div>`;
+  document.getElementById('shotsRow').innerHTML = '';
 }
-function fillShots(){
-  const shots = document.querySelectorAll('.shot');
-  shots.forEach((s,i)=>{
-    if(!s.classList.contains('filled') && i<3){
-      s.classList.add('filled');
-      s.style.backgroundImage = `url('https://picsum.photos/seed/shot${i}/150/150')`;
-      s.textContent='';
-      return;
+let uploadedPhotoUrls = [];
+let selectedFiles = [];
+
+function handleFileSelect(event){
+  const files = Array.from(event.target.files).slice(0, 6 - selectedFiles.length);
+  selectedFiles = selectedFiles.concat(files);
+  renderShotPreviews();
+}
+
+function renderShotPreviews(){
+  const row = document.getElementById('shotsRow');
+  row.innerHTML = selectedFiles.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<div class="shot filled" style="background-image:url('${url}')"><div class="checkmark" style="position:absolute; top:4px; right:4px; background:var(--green-deep); width:15px;height:15px;border-radius:50%; color:#fff; font-size:10px; display:flex; align-items:center; justify-content:center;">✓</div></div>`;
+  }).join('');
+}
+
+async function uploadSelectedPhotos(listingId){
+  const status = document.getElementById('uploadStatus');
+  uploadedPhotoUrls = [];
+  for(let i = 0; i < selectedFiles.length; i++){
+    const file = selectedFiles[i];
+    status.textContent = `Rasm yuklanmoqda (${i+1}/${selectedFiles.length})...`;
+    const ext = file.name.split('.').pop();
+    const path = `${listingId}/${Date.now()}_${i}.${ext}`;
+    const { error: upErr } = await sb.storage.from('listing-photos').upload(path, file);
+    if(upErr){
+      status.textContent = 'Rasm yuklashda xato: ' + upErr.message;
+      continue;
     }
-  });
+    const { data: pub } = sb.storage.from('listing-photos').getPublicUrl(path);
+    uploadedPhotoUrls.push(pub.publicUrl);
+    await sb.from('listing_images').insert({ listing_id: listingId, url: pub.publicUrl, sort_order: i });
+  }
+  status.textContent = uploadedPhotoUrls.length ? `${uploadedPhotoUrls.length} ta rasm yuklandi.` : '';
 }
 
 async function loadMyListings(){
@@ -749,7 +779,7 @@ async function loadMyListings(){
   el.innerHTML = `<div class="placeholder-screen"><div class="ic">⏳</div><div class="t">Yuklanmoqda...</div></div>`;
   const { data: { user } } = await sb.auth.getUser();
   if(!user){ el.innerHTML = ''; return; }
-  const { data: items, error } = await sb.from('listings').select('*').eq('seller_id', user.id).order('created_at', {ascending:false});
+  const { data: items, error } = await sb.from('listings').select('*, listing_images(url, sort_order)').eq('seller_id', user.id).order('created_at', {ascending:false});
   if(error){ console.error(error); el.innerHTML = ''; return; }
   if(!items.length){
     el.innerHTML = `<div class="placeholder-screen"><div class="ic">🐄</div><div class="t">Hali e'loningiz yo'q</div></div>`;
@@ -757,7 +787,7 @@ async function loadMyListings(){
   }
   el.innerHTML = items.map(it=>`
     <div class="my-card">
-      <div class="ph" style="background-image:url('https://picsum.photos/seed/listing${it.id}/150/150')"></div>
+      <div class="ph" style="background-image:url('${firstImage(it)}')"></div>
       <div style="flex:1;">
         <div style="font-weight:800; font-size:13.5px;">${it.breed || ''} ${it.gender || ''}</div>
         <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${fmtPrice(it.price)} so'm</div>
@@ -777,12 +807,12 @@ async function markSold(id){
 async function openDetail(id){
   let l = dbListingsCache.find(x => String(x.id) === String(id));
   if(!l){
-    const { data } = await sb.from('listings').select('*').eq('id', id).single();
+    const { data } = await sb.from('listings').select('*, listing_images(url, sort_order)').eq('id', id).single();
     if(!data) return;
     const { data: prof } = await sb.from('public_profiles').select('*').eq('id', data.seller_id).single();
     l = {...data, sellerProfile: prof};
   }
-  document.getElementById('detailImg').style.backgroundImage = `url('https://picsum.photos/seed/listing${l.id}big/700/500')`;
+  document.getElementById('detailImg').style.backgroundImage = `url('${firstImage(l)}')`;
   document.getElementById('detailTitle').textContent = `${l.breed || ''} ${l.gender || ''}`;
   document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm";
   document.getElementById('detailBadges').innerHTML = `<span class="vbadge">📱 Telefon tasdiqlangan</span>`;
@@ -852,6 +882,11 @@ async function publishListing(){
     alert('Xato: ' + error.message);
     return;
   }
+
+  if(selectedFiles.length){
+    await uploadSelectedPhotos(data.id);
+  }
+  selectedFiles = [];
 
   document.querySelector('#screen-receipt .rid').textContent = `№ ${data.id.slice(0,8)} · ${new Date(data.created_at).toLocaleDateString('uz-UZ')}`;
   const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
