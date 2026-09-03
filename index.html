@@ -750,8 +750,24 @@ function renderShotPreviews(){
   const row = document.getElementById('shotsRow');
   row.innerHTML = selectedFiles.map((f, i) => {
     const url = URL.createObjectURL(f);
-    return `<div class="shot filled" style="background-image:url('${url}')"><div class="checkmark" style="position:absolute; top:4px; right:4px; background:var(--green-deep); width:15px;height:15px;border-radius:50%; color:#fff; font-size:10px; display:flex; align-items:center; justify-content:center;">✓</div></div>`;
+    return `<div class="shot filled" style="background-image:url('${url}'); position:relative;"><div class="checkmark" style="position:absolute; top:4px; right:4px; background:var(--green-deep); width:15px;height:15px;border-radius:50%; color:#fff; font-size:10px; display:flex; align-items:center; justify-content:center;">✓</div><button onclick="removeSelectedFile(${i}); event.stopPropagation();" style="position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,.6); color:#fff; border-radius:50%; width:16px; height:16px; font-size:11px; line-height:1;">✕</button></div>`;
   }).join('');
+  const status = document.getElementById('uploadStatus');
+  const n = selectedFiles.length;
+  if(n === 0){
+    status.textContent = "Kamida 3 ta rasm tanlang: old, orqa, yon tomondan.";
+    status.style.color = 'var(--sage)';
+  } else if(n < 3){
+    status.textContent = `${n} ta rasm tanlandi — yana kamida ${3-n} ta qo'shing (old/orqa/yon).`;
+    status.style.color = 'var(--apricot, #c07a1f)';
+  } else {
+    status.textContent = `${n} ta rasm tanlandi. Yetarli — davom etishingiz mumkin.`;
+    status.style.color = 'var(--green-deep)';
+  }
+}
+function removeSelectedFile(i){
+  selectedFiles.splice(i, 1);
+  renderShotPreviews();
 }
 
 async function uploadSelectedPhotos(listingId){
@@ -792,7 +808,10 @@ async function loadMyListings(){
         <div style="font-weight:800; font-size:13.5px;">${it.breed || ''} ${it.gender || ''}</div>
         <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${fmtPrice(it.price)} so'm</div>
         <span class="status-badge ${it.status==='active'?'active':'sold'}">${it.status==='active'?'🟢 FAOL':'🔴 SOTILDI'}</span>
-        ${it.status==='active' ? `<div><button class="sold-btn" onclick="markSold('${it.id}')">✅ Sotildi</button></div>` : ''}
+        <div style="display:flex; gap:6px; margin-top:6px;">
+        ${it.status==='active' ? `<button class="sold-btn" onclick="markSold('${it.id}')">✅ Sotildi</button>` : ''}
+        <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="deleteListing('${it.id}')">🗑 O'chirish</button>
+        </div>
       </div>
     </div>`).join('');
 }
@@ -800,6 +819,13 @@ async function loadMyListings(){
 async function markSold(id){
   if(!confirm("Ushbu mol sotilganligini tasdiqlaysizmi?")) return;
   const { error } = await sb.from('listings').update({status:'sold'}).eq('id', id);
+  if(error){ alert('Xato: ' + error.message); return; }
+  loadMyListings();
+}
+
+async function deleteListing(id){
+  if(!confirm("Bu e'lonni butunlay o'chirasizmi? Bu amalni ortga qaytarib bo'lmaydi.")) return;
+  const { error } = await sb.from('listings').delete().eq('id', id);
   if(error){ alert('Xato: ' + error.message); return; }
   loadMyListings();
 }
@@ -848,13 +874,35 @@ function showScreen(name){
 }
 function tabTo(name){ showScreen(name); }
 
-function startAddFlow(){ goStep(1); }
+function startAddFlow(){
+  selectedFiles = [];
+  document.getElementById('uploadStatus').textContent = '';
+  renderShotPreviews();
+  document.getElementById('breedInput').selectedIndex = 0;
+  document.getElementById('genderInput').selectedIndex = 0;
+  document.getElementById('ageInput').value = '';
+  document.getElementById('weightInput').value = '';
+  document.getElementById('colorInput').selectedIndex = 0;
+  document.getElementById('priceInput').value = '';
+  document.querySelectorAll('.type-card').forEach((t,i)=>t.classList.toggle('sel', i===0));
+  document.getElementById('selectedCategory').value = 'qoramol';
+  goStep(1);
+}
 function goStep(n){ showScreen('add'+n); }
 
 async function publishListing(){
   const btn = document.getElementById('publishBtnEl');
   const { data: { user } } = await sb.auth.getUser();
   if(!user){ alert('Avval tizimga kiring.'); showScreen('auth'); return; }
+
+  const weightVal = parseFloat(document.getElementById('weightInput').value);
+  const priceVal = parseInt(document.getElementById('priceInput').value.replace(/\D/g,''));
+  const ageVal = document.getElementById('ageInput').value.trim();
+
+  if(!weightVal || weightVal <= 0){ alert("Iltimos, vaznni kiriting."); goStep(2); return; }
+  if(!ageVal){ alert("Iltimos, yoshini kiriting."); goStep(2); return; }
+  if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
+  if(selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
 
   btn.disabled = true;
   btn.textContent = 'Joylanmoqda...';
@@ -864,13 +912,13 @@ async function publishListing(){
     category: document.getElementById('selectedCategory').value,
     breed: document.getElementById('breedInput').value,
     gender: document.getElementById('genderInput').value,
-    age_text: document.getElementById('ageInput').value,
-    weight_kg: parseFloat(document.getElementById('weightInput').value) || null,
+    age_text: ageVal,
+    weight_kg: weightVal,
     weight_source: 'seller',
     color: document.getElementById('colorInput').value,
     health_status: selectedPillValue('healthPills'),
     purpose: selectedPillValue('purposePills'),
-    price: parseInt(document.getElementById('priceInput').value.replace(/\D/g,'')) || 0,
+    price: priceVal,
     region: document.getElementById('regionInput').value,
     district: document.getElementById('districtInput').value,
   };
