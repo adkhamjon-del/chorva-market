@@ -280,17 +280,12 @@
       </div>
 
       <div id="authStep1">
-        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">Telefon raqami</label>
-        <input id="authPhone" placeholder="+998901234567" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:inherit; margin-bottom:12px;">
-        <button onclick="sendOtp()" style="width:100%; padding:14px; border-radius:13px; background:var(--green-deep); color:#fff; font-weight:800; font-size:14px; border:none;">Kod yuborish</button>
+        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">Email</label>
+        <input id="authEmail" type="email" placeholder="siz@example.com" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:inherit; margin-bottom:12px;">
+        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">Parol</label>
+        <input id="authPassword" type="password" placeholder="Kamida 6 belgi" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:inherit; margin-bottom:12px;">
+        <button onclick="emailAuth()" style="width:100%; padding:14px; border-radius:13px; background:var(--green-deep); color:#fff; font-weight:800; font-size:14px; border:none;">Kirish / Ro'yxatdan o'tish</button>
         <div id="authMsg1" style="font-size:12px; color:var(--alert); margin-top:8px;"></div>
-      </div>
-
-      <div id="authStep2" style="display:none;">
-        <label style="display:block; font-size:12px; font-weight:700; color:var(--sage); margin-bottom:6px;">SMS kod (6 xonali)</label>
-        <input id="authOtp" placeholder="123456" style="width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); font-size:15px; font-family:'IBM Plex Mono',monospace; margin-bottom:12px;">
-        <button onclick="verifyOtpCode()" style="width:100%; padding:14px; border-radius:13px; background:var(--green-deep); color:#fff; font-weight:800; font-size:14px; border:none;">Tasdiqlash</button>
-        <div id="authMsg2" style="font-size:12px; color:var(--alert); margin-top:8px;"></div>
       </div>
     </div>
   </section>
@@ -589,31 +584,27 @@ const SUPABASE_URL = 'https://ujleiylegjkcqtuppwmj.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_mVeDHWdvWovZQfDyT0eE_Q_crDKdzLZ';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-async function sendOtp(){
-  const phoneRaw = document.getElementById('authPhone').value.trim();
+async function emailAuth(){
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
   const msg = document.getElementById('authMsg1');
   msg.textContent = '';
-  if(!phoneRaw.startsWith('+') || phoneRaw.length < 12){
-    msg.textContent = "Iltimos, +998 bilan boshlanadigan to'liq raqam kiriting.";
+  if(!email || password.length < 6){
+    msg.textContent = "Email va kamida 6 belgili parol kiriting.";
     return;
   }
-  const { error } = await sb.auth.signInWithOtp({ phone: phoneRaw });
+  let { data, error } = await sb.auth.signUp({ email, password });
+  if(error && error.message.toLowerCase().includes('already registered')){
+    ({ data, error } = await sb.auth.signInWithPassword({ email, password }));
+  } else if(error && error.message.toLowerCase().includes('already been registered')){
+    ({ data, error } = await sb.auth.signInWithPassword({ email, password }));
+  }
   if(error){
     msg.textContent = 'Xato: ' + error.message;
     return;
   }
-  document.getElementById('authStep1').style.display = 'none';
-  document.getElementById('authStep2').style.display = 'block';
-}
-
-async function verifyOtpCode(){
-  const phoneRaw = document.getElementById('authPhone').value.trim();
-  const code = document.getElementById('authOtp').value.trim();
-  const msg = document.getElementById('authMsg2');
-  msg.textContent = '';
-  const { data, error } = await sb.auth.verifyOtp({ phone: phoneRaw, token: code, type: 'sms' });
-  if(error){
-    msg.textContent = 'Xato: ' + error.message;
+  if(!data.session){
+    msg.textContent = "Ro'yxatdan o'tildi, lekin sessiya ochilmadi — 'Confirm email' o'chirilganini tekshiring.";
     return;
   }
   showScreen('home');
