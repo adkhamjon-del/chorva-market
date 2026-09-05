@@ -330,6 +330,7 @@
       <div onclick="prevImage()" style="position:absolute; left:0; top:0; bottom:0; width:35%; cursor:pointer;"></div>
       <div onclick="nextImage()" style="position:absolute; right:0; top:0; bottom:0; width:35%; cursor:pointer;"></div>
     </div>
+    <div id="detailThumbRow" style="display:flex; gap:8px; padding:10px 16px 0; overflow-x:auto;"></div>
     <div class="detail-body">
       <h1 class="detail-title" id="detailTitle"></h1>
       <div class="detail-price mono" id="detailPrice"></div>
@@ -469,13 +470,13 @@
 
     <div class="preview-card">
       <div class="card" style="flex-direction:column;">
-        <div class="thumb" style="width:100%; height:170px; background-image:url('https://picsum.photos/seed/simmental1/500/340');">
+        <div class="thumb" id="previewThumb" style="width:100%; height:170px; background-image:url('https://picsum.photos/seed/simmental1/500/340');">
           <div class="badge">🆕 Yangi</div>
         </div>
         <div class="info">
-          <div class="title">Simmental buqa</div>
-          <div class="price mono">25 000 000 so'm</div>
-          <div class="meta">
+          <div class="title" id="previewTitle">Simmental buqa</div>
+          <div class="price mono" id="previewPrice">25 000 000 so'm</div>
+          <div class="meta" id="previewMeta2">
             <span>⚖️ ~472 kg</span><span>📅 2 yil 3 oy</span><span>📍 Samarqand vil.</span>
           </div>
         </div>
@@ -582,7 +583,8 @@
       </div>
       <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="saveProfile()">Saqlash</button>
       <div id="profileMsg" style="font-size:12px; color:var(--green-deep); margin-top:8px;"></div>
-      <button class="btn btn-outline" style="width:100%; margin-top:20px; color:var(--alert);" onclick="signOutUser()">Chiqish</button>
+      <button class="btn btn-outline" style="width:100%; margin-top:20px;" onclick="showScreen('mylistings')">🐄 Mening e'lonlarim</button>
+      <button class="btn btn-outline" style="width:100%; margin-top:10px; color:var(--alert);" onclick="signOutUser()">Chiqish</button>
     </div>
   </section>
 
@@ -808,21 +810,32 @@ function removeSelectedFile(i){
 async function uploadSelectedPhotos(listingId){
   const status = document.getElementById('uploadStatus');
   uploadedPhotoUrls = [];
-  for(let i = 0; i < selectedFiles.length; i++){
-    const file = selectedFiles[i];
-    status.textContent = `Rasm yuklanmoqda (${i+1}/${selectedFiles.length})...`;
+  status.textContent = `Rasmlar yuklanmoqda (0/${selectedFiles.length})...`;
+  let doneCount = 0;
+  const errors = [];
+
+  await Promise.all(selectedFiles.map(async (file, i) => {
     const ext = file.name.split('.').pop();
     const path = `${listingId}/${Date.now()}_${i}.${ext}`;
     const { error: upErr } = await sb.storage.from('listing-photos').upload(path, file);
     if(upErr){
-      status.textContent = 'Rasm yuklashda xato: ' + upErr.message;
-      continue;
+      errors.push(`Rasm ${i+1}: ${upErr.message}`);
+    } else {
+      const { data: pub } = sb.storage.from('listing-photos').getPublicUrl(path);
+      uploadedPhotoUrls.push(pub.publicUrl);
+      await sb.from('listing_images').insert({ listing_id: listingId, url: pub.publicUrl, sort_order: i });
     }
-    const { data: pub } = sb.storage.from('listing-photos').getPublicUrl(path);
-    uploadedPhotoUrls.push(pub.publicUrl);
-    await sb.from('listing_images').insert({ listing_id: listingId, url: pub.publicUrl, sort_order: i });
+    doneCount++;
+    status.textContent = `Rasmlar yuklanmoqda (${doneCount}/${selectedFiles.length})...`;
+  }));
+
+  if(errors.length){
+    status.style.color = 'var(--alert)';
+    status.textContent = `${uploadedPhotoUrls.length}/${selectedFiles.length} rasm yuklandi. Xato: ${errors.join(' | ')}`;
+  } else {
+    status.style.color = 'var(--green-deep)';
+    status.textContent = `${uploadedPhotoUrls.length} ta rasm yuklandi.`;
   }
-  status.textContent = uploadedPhotoUrls.length ? `${uploadedPhotoUrls.length} ta rasm yuklandi.` : '';
 }
 
 async function loadMyListings(){
@@ -843,8 +856,9 @@ async function loadMyListings(){
         <div style="font-weight:800; font-size:13.5px;">${it.breed || ''} ${it.gender || ''}</div>
         <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${fmtPrice(it.price)} so'm</div>
         <span class="status-badge ${it.status==='active'?'active':'sold'}">${it.status==='active'?'🟢 FAOL':'🔴 SOTILDI'}</span>
-        <div style="display:flex; gap:6px; margin-top:6px;">
+        <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
         ${it.status==='active' ? `<button class="sold-btn" onclick="markSold('${it.id}')">✅ Sotildi</button>` : ''}
+        <button class="sold-btn" onclick="editListing('${it.id}')">✏️ Tahrirlash</button>
         <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="deleteListing('${it.id}')">🗑 O'chirish</button>
         </div>
       </div>
@@ -919,7 +933,34 @@ function showScreen(name){
 }
 function tabTo(name){ showScreen(name); }
 
+let editingListingId = null;
+
+async function editListing(id){
+  const { data: it, error } = await sb.from('listings').select('*, listing_images(url, sort_order)').eq('id', id).single();
+  if(error || !it){ alert('Xato: e\'lon topilmadi.'); return; }
+  editingListingId = id;
+  selectedFiles = [];
+  document.getElementById('uploadStatus').textContent = "Mavjud rasmlar saqlanadi. Yangi rasm qo'shishni xohlasangiz, tanlang.";
+  renderShotPreviews();
+
+  document.querySelectorAll('.type-card').forEach(t => t.classList.toggle('sel', t.dataset.cat === it.category));
+  document.getElementById('selectedCategory').value = it.category;
+  document.getElementById('breedInput').value = it.breed || '';
+  document.getElementById('genderInput').value = it.gender || '';
+  document.getElementById('ageInput').value = it.age_text || '';
+  document.getElementById('weightInput').value = it.weight_kg || '';
+  document.getElementById('colorInput').value = it.color || '';
+  document.querySelectorAll('#healthPills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.health_status));
+  document.querySelectorAll('#purposePills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.purpose));
+  document.getElementById('priceInput').value = it.price;
+  document.getElementById('regionInput').value = it.region || '';
+  document.getElementById('districtInput').value = it.district || '';
+
+  goStep(1);
+}
+
 function startAddFlow(){
+  editingListingId = null;
   selectedFiles = [];
   document.getElementById('uploadStatus').textContent = '';
   renderShotPreviews();
@@ -933,7 +974,25 @@ function startAddFlow(){
   document.getElementById('selectedCategory').value = 'qoramol';
   goStep(1);
 }
-function goStep(n){ showScreen('add'+n); }
+function goStep(n){
+  showScreen('add'+n);
+  if(n === 4) renderStep4Preview();
+}
+function renderStep4Preview(){
+  const thumb = document.getElementById('previewThumb');
+  if(selectedFiles.length){
+    thumb.style.backgroundImage = `url('${URL.createObjectURL(selectedFiles[0])}')`;
+  }
+  const breed = document.getElementById('breedInput').value;
+  const gender = document.getElementById('genderInput').value;
+  const age = document.getElementById('ageInput').value;
+  const weight = document.getElementById('weightInput').value;
+  const price = document.getElementById('priceInput').value;
+  const region = document.getElementById('regionInput').value;
+  document.getElementById('previewTitle').textContent = `${breed} ${gender}`;
+  document.getElementById('previewPrice').textContent = `${price} so'm`;
+  document.getElementById('previewMeta2').innerHTML = `<span>⚖️ ~${weight} kg</span><span>📅 ${age}</span><span>📍 ${region}</span>`;
+}
 
 async function publishListing(){
   const btn = document.getElementById('publishBtnEl');
@@ -947,10 +1006,10 @@ async function publishListing(){
   if(!weightVal || weightVal <= 0){ alert("Iltimos, vaznni kiriting."); goStep(2); return; }
   if(!ageVal){ alert("Iltimos, yoshini kiriting."); goStep(2); return; }
   if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
-  if(selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
+  if(!editingListingId && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
 
   btn.disabled = true;
-  btn.textContent = 'Joylanmoqda...';
+  btn.textContent = editingListingId ? 'Yangilanmoqda...' : 'Joylanmoqda...';
 
   const payload = {
     seller_id: user.id,
@@ -968,7 +1027,12 @@ async function publishListing(){
     district: document.getElementById('districtInput').value,
   };
 
-  const { data, error } = await sb.from('listings').insert(payload).select().single();
+  let data, error;
+  if(editingListingId){
+    ({ data, error } = await sb.from('listings').update(payload).eq('id', editingListingId).select().single());
+  } else {
+    ({ data, error } = await sb.from('listings').insert(payload).select().single());
+  }
   btn.disabled = false;
   btn.textContent = "✅ E'lonni joylashtirish";
   if(error){
@@ -980,6 +1044,13 @@ async function publishListing(){
     await uploadSelectedPhotos(data.id);
   }
   selectedFiles = [];
+
+  if(editingListingId){
+    editingListingId = null;
+    alert("E'lon yangilandi.");
+    showScreen('mylistings');
+    return;
+  }
 
   document.querySelector('#screen-receipt .rid').textContent = `№ ${data.id.slice(0,8)} · ${new Date(data.created_at).toLocaleDateString('uz-UZ')}`;
   const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
@@ -1101,6 +1172,17 @@ function renderDetailImage(){
   const img = currentDetailImages[currentDetailIndex] || `https://picsum.photos/seed/listingfallback/700/500`;
   document.getElementById('detailImg').style.backgroundImage = `url('${img}')`;
   document.getElementById('detailImgCount').textContent = `${currentDetailIndex+1} / ${currentDetailImages.length}`;
+  const row = document.getElementById('detailThumbRow');
+  if(currentDetailImages.length > 1){
+    row.innerHTML = currentDetailImages.map((u, i) => `
+      <div onclick="jumpToImage(${i})" style="width:56px; height:56px; flex-shrink:0; border-radius:10px; background-image:url('${u}'); background-size:cover; background-position:center; border:2px solid ${i===currentDetailIndex ? 'var(--green-deep)' : 'transparent'}; cursor:pointer;"></div>`).join('');
+  } else {
+    row.innerHTML = '';
+  }
+}
+function jumpToImage(i){
+  currentDetailIndex = i;
+  renderDetailImage();
 }
 function nextImage(){
   if(currentDetailImages.length < 2) return;
