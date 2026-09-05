@@ -495,6 +495,7 @@
 
   <!-- ============ RECEIPT / SUCCESS ============ -->
   <section class="screen" id="screen-receipt">
+    <div class="subheader"><button class="iconbtn" onclick="showScreen('mylistings')">←</button><div style="width:36px;"></div><div style="width:36px;"></div></div>
     <div class="receipt-wrap">
       <div class="check-circle" id="receiptCheckMount"></div>
       <div class="display" style="font-size:19px; font-weight:600; margin-bottom:2px;">E'lon joylandi!</div>
@@ -887,6 +888,7 @@ async function loadMyListings(){
         <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
         ${it.status==='active' ? `<button class="sold-btn" onclick="markSold('${it.id}')">${ICON.check} Sotildi</button>` : ''}
         <button class="sold-btn" onclick="editListing('${it.id}')">${ICON.edit} Tahrirlash</button>
+        <button class="sold-btn" onclick="viewReceipt('${it.id}')">Chek</button>
         <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="deleteListing('${it.id}')">${ICON.trash} O'chirish</button>
         </div>
       </div>
@@ -1088,7 +1090,36 @@ async function publishListing(){
   lines[3].textContent = `~${payload.weight_kg} kg`;
   lines[4].textContent = `${fmtPrice(payload.price)} so'm`;
   lines[5].textContent = payload.region;
+  lines[6].textContent = data.status === 'sold' ? 'Yopilgan' : '30 kun';
+  document.querySelector('#screen-receipt .status-pill').innerHTML = data.status === 'sold'
+    ? `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#C1443B;display:inline-block;"></span> SOTILGAN`
+    : `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#3E9A5F;display:inline-block;"></span> E'LON FAOL`;
+  receiptReturnScreen = 'mylistings';
 
+  showScreen('receipt');
+}
+
+let receiptReturnScreen = 'mylistings';
+function fillReceipt(l){
+  document.querySelector('#screen-receipt .rid').textContent = `№ ${String(l.id).slice(0,8)} · ${new Date(l.created_at).toLocaleDateString('uz-UZ')}`;
+  const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
+  lines[0].textContent = CATEGORIES.find(c=>c.id===l.category)?.name || l.category;
+  lines[1].textContent = l.breed || '';
+  lines[2].textContent = `${l.gender || ''} / ${l.age_text || ''}`;
+  lines[3].textContent = `~${l.weight_kg || '—'} kg`;
+  lines[4].textContent = `${fmtPrice(l.price)} so'm`;
+  lines[5].textContent = l.region || '';
+  lines[6].textContent = l.status === 'sold' ? 'Yopilgan' : '30 kun';
+  document.querySelector('#screen-receipt .status-pill').innerHTML = l.status === 'sold'
+    ? `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#C1443B;display:inline-block;"></span> SOTILGAN`
+    : `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#3E9A5F;display:inline-block;"></span> E'LON FAOL`;
+}
+
+async function viewReceipt(id){
+  const { data: l, error } = await sb.from('listings').select('*').eq('id', id).single();
+  if(error || !l){ alert("E'lon topilmadi."); return; }
+  fillReceipt(l);
+  receiptReturnScreen = 'mylistings';
   showScreen('receipt');
 }
 
