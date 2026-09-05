@@ -323,10 +323,12 @@
   <section class="screen" id="screen-detail">
     <div class="subheader">
       <button class="iconbtn" onclick="showScreen('home')">←</button>
-      <button class="iconbtn">🤍</button>
+      <button class="iconbtn" id="detailHeartBtn" onclick="toggleFavoriteDetail()">🤍</button>
     </div>
-    <div class="hero-img" id="detailImg">
-      <div class="count">1 / 6</div>
+    <div class="hero-img" id="detailImg" style="position:relative;">
+      <div class="count" id="detailImgCount">1 / 6</div>
+      <div onclick="prevImage()" style="position:absolute; left:0; top:0; bottom:0; width:35%; cursor:pointer;"></div>
+      <div onclick="nextImage()" style="position:absolute; right:0; top:0; bottom:0; width:35%; cursor:pointer;"></div>
     </div>
     <div class="detail-body">
       <h1 class="detail-title" id="detailTitle"></h1>
@@ -347,9 +349,18 @@
         <div class="btn btn-primary" onclick="revealPhone()">
           📞 Aloqaga chiqish<br><span class="free-tag">&nbsp;</span>
         </div>
-        <div class="btn btn-outline">📤</div>
+        <div class="btn btn-outline" onclick="shareListing()">📤</div>
       </div>
       <button onclick="reportListing()" style="width:100%; margin-top:10px; background:none; border:none; color:var(--sage); font-size:12px; font-weight:700;">⚠️ Bu e'londa muammo bor</button>
+
+      <div style="margin-top:22px; border-top:1px solid var(--line); padding-top:16px;">
+        <div style="font-family:'Fraunces',serif; font-weight:600; font-size:15px; margin-bottom:10px;">Izohlar</div>
+        <div id="commentsList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:12px;"></div>
+        <div style="display:flex; gap:8px;">
+          <input id="commentInput" placeholder="Savol yoki izoh yozing..." style="flex:1; padding:11px 13px; border-radius:12px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+          <button onclick="postComment()" style="background:var(--green-deep); color:#fff; border:none; border-radius:12px; padding:0 16px; font-weight:800; font-size:13px;">Yuborish</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -683,6 +694,7 @@ function cardHTML(l){
   const img = firstImage(l);
   const rating = l.sellerProfile?.rating || 0;
   const reviews = l.sellerProfile?.rating_count || 0;
+  const faved = favoriteIds.has(String(l.id));
   return `<div class="card" onclick="openDetail('${l.id}')" style="cursor:pointer;">
     <div class="thumb" style="background-image:url('${img}');">
       <div class="badge">📱 Telefon tasdiqlangan</div>
@@ -694,7 +706,7 @@ function cardHTML(l){
       <div class="meta">📍 ${l.region || ''}</div>
       <div class="bottom-row">
         <div class="stars">★ ${rating} <span>(${reviews})</span></div>
-        <div class="heart">🤍</div>
+        <div class="heart" onclick="toggleFavoriteCard(event, '${l.id}')">${faved ? '❤️' : '🤍'}</div>
       </div>
     </div>
   </div>`;
@@ -862,7 +874,14 @@ async function openDetail(id){
     const { data: prof } = await sb.from('public_profiles').select('*').eq('id', data.seller_id).single();
     l = {...data, sellerProfile: prof};
   }
-  document.getElementById('detailImg').style.backgroundImage = `url('${firstImage(l)}')`;
+  if(l.listing_images && l.listing_images.length){
+    currentDetailImages = [...l.listing_images].sort((a,b)=>a.sort_order-b.sort_order).map(im=>im.url);
+  } else {
+    currentDetailImages = [firstImage(l)];
+  }
+  currentDetailIndex = 0;
+  renderDetailImage();
+  document.getElementById('detailHeartBtn').textContent = favoriteIds.has(String(l.id)) ? '❤️' : '🤍';
   document.getElementById('detailTitle').textContent = `${l.breed || ''} ${l.gender || ''}`;
   document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm";
   document.getElementById('detailBadges').innerHTML = `<span class="vbadge">📱 Telefon tasdiqlangan</span>`;
@@ -879,6 +898,7 @@ async function openDetail(id){
   document.getElementById('sellerInitial').textContent = sellerName.split(' ').map(w=>w[0]).join('').slice(0,2) || '👤';
   document.getElementById('sellerName').textContent = sellerName;
   document.getElementById('sellerMeta').textContent = `⭐ ${l.sellerProfile?.rating || 0} · ${l.sellerProfile?.listings_count || 0} e'lon`;
+  loadComments(l.id);
   showScreen('detail');
 }
 
@@ -981,6 +1001,7 @@ async function initAfterLogin(){
     showScreen('complete-profile');
     return;
   }
+  await loadFavorites();
   showScreen('home');
 }
 
@@ -1032,6 +1053,105 @@ async function saveProfile(){
 async function signOutUser(){
   await sb.auth.signOut();
   location.reload();
+}
+
+let favoriteIds = new Set();
+
+async function loadFavorites(){
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user) return;
+  const { data } = await sb.from('favorites').select('listing_id').eq('user_id', user.id);
+  favoriteIds = new Set((data||[]).map(f => String(f.listing_id)));
+}
+
+async function toggleFavoriteCard(event, id){
+  event.stopPropagation();
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user){ alert('Avval tizimga kiring.'); return; }
+  if(favoriteIds.has(String(id))){
+    await sb.from('favorites').delete().eq('user_id', user.id).eq('listing_id', id);
+    favoriteIds.delete(String(id));
+  } else {
+    await sb.from('favorites').insert({ user_id: user.id, listing_id: id });
+    favoriteIds.add(String(id));
+  }
+  event.target.textContent = favoriteIds.has(String(id)) ? '❤️' : '🤍';
+}
+
+async function toggleFavoriteDetail(){
+  if(!openListingId) return;
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user){ alert('Avval tizimga kiring.'); return; }
+  const btn = document.getElementById('detailHeartBtn');
+  if(favoriteIds.has(String(openListingId))){
+    await sb.from('favorites').delete().eq('user_id', user.id).eq('listing_id', openListingId);
+    favoriteIds.delete(String(openListingId));
+    btn.textContent = '🤍';
+  } else {
+    await sb.from('favorites').insert({ user_id: user.id, listing_id: openListingId });
+    favoriteIds.add(String(openListingId));
+    btn.textContent = '❤️';
+  }
+}
+
+let currentDetailImages = [];
+let currentDetailIndex = 0;
+
+function renderDetailImage(){
+  const img = currentDetailImages[currentDetailIndex] || `https://picsum.photos/seed/listingfallback/700/500`;
+  document.getElementById('detailImg').style.backgroundImage = `url('${img}')`;
+  document.getElementById('detailImgCount').textContent = `${currentDetailIndex+1} / ${currentDetailImages.length}`;
+}
+function nextImage(){
+  if(currentDetailImages.length < 2) return;
+  currentDetailIndex = (currentDetailIndex + 1) % currentDetailImages.length;
+  renderDetailImage();
+}
+function prevImage(){
+  if(currentDetailImages.length < 2) return;
+  currentDetailIndex = (currentDetailIndex - 1 + currentDetailImages.length) % currentDetailImages.length;
+  renderDetailImage();
+}
+
+function shareListing(){
+  const url = `${location.origin}${location.pathname}?listing=${openListingId}`;
+  if(navigator.share){
+    navigator.share({ title: 'Chorva Market e\'lon', url }).catch(()=>{});
+  } else {
+    navigator.clipboard.writeText(url).then(()=>alert('Havola nusxalandi.'));
+  }
+}
+
+async function loadComments(listingId){
+  const list = document.getElementById('commentsList');
+  list.innerHTML = '<div style="font-size:12px; color:var(--sage);">Yuklanmoqda...</div>';
+  const { data, error } = await sb.from('comments').select('*').eq('listing_id', listingId).order('created_at', {ascending:true});
+  if(error){ list.innerHTML = ''; return; }
+  if(!data.length){
+    list.innerHTML = '<div style="font-size:12px; color:var(--sage);">Hali izoh yo\'q. Birinchi bo\'lib yozing.</div>';
+    return;
+  }
+  const userIds = [...new Set(data.map(c=>c.user_id))];
+  const { data: profs } = await sb.from('public_profiles').select('id, full_name').in('id', userIds);
+  const nameMap = {};
+  (profs||[]).forEach(p => nameMap[p.id] = p.full_name || 'Foydalanuvchi');
+  list.innerHTML = data.map(c => `
+    <div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:10px 12px;">
+      <div style="font-weight:800; font-size:12.5px; margin-bottom:3px;">${nameMap[c.user_id] || 'Foydalanuvchi'}</div>
+      <div style="font-size:13px; color:var(--ink);">${c.body}</div>
+    </div>`).join('');
+}
+
+async function postComment(){
+  const input = document.getElementById('commentInput');
+  const body = input.value.trim();
+  if(!body || !openListingId) return;
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user){ alert('Avval tizimga kiring.'); return; }
+  const { error } = await sb.from('comments').insert({ listing_id: openListingId, user_id: user.id, body });
+  if(error){ alert('Xato: ' + error.message); return; }
+  input.value = '';
+  loadComments(openListingId);
 }
 
 let openListingId = null;
