@@ -61,7 +61,7 @@
     width:34px;height:34px;border-radius:9px;
     background:var(--apricot);
     display:flex;align-items:center;justify-content:center;
-    font-family:'Fraunces',serif; font-weight:700; font-size:14px; color:#fff;
+    font-size:19px; color:#fff;
   }
   .brand .name{font-family:'Fraunces',serif; font-weight:600; font-size:19px; letter-spacing:0.2px;}
   .brand .name span{opacity:.72; font-weight:400; font-size:13px; display:block; margin-top:-2px; font-family:'Manrope',sans-serif;}
@@ -297,7 +297,7 @@
     <div class="topbar">
       <div class="brand" style="justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:9px;">
-          <div class="logo" style="background-image:url('https://picsum.photos/seed/cowlogo/80/80'); background-size:cover;"></div>
+          <div class="logo" id="logoIconMount"></div>
           <div class="name">Chorva Market<span>Molni bozorga olib bormang</span></div>
         </div>
         <div class="bell" id="bellIconMount"></div>
@@ -412,10 +412,11 @@
     <div id="uploadStatus" style="padding:0 16px 10px; font-size:11.5px; color:var(--sage);"></div>
 
     <div class="field"><label>Zot / Naslining turi</label>
-      <select id="breedInput"><option>Simmental</option><option>Angus</option><option>Holstein</option><option>Qizil cho'l</option><option>Mahalliy</option></select>
+      <input id="breedInput" list="breedDatalist" placeholder="Masalan: Simmental">
+      <datalist id="breedDatalist"></datalist>
     </div>
     <div class="row2">
-      <div class="field"><label>Jinsi</label><select id="genderInput"><option>Buqa</option><option>Sigir</option><option>G'unajin</option></select></div>
+      <div class="field"><label>Jinsi</label><input id="genderInput" list="genderDatalist" placeholder="Masalan: Buqa"><datalist id="genderDatalist"></datalist></div>
       <div class="field"><label>Yoshi</label><input id="ageInput" placeholder="2 yil 3 oy" value="2 yil 3 oy"></div>
     </div>
     <div class="row2">
@@ -728,21 +729,10 @@ function regionOptionsHtml(selected){
 let activeCat = 'all';
 let currentUser = null;
 
-const CATEGORY_PHOTO = {
-  qoramol: 'https://picsum.photos/seed/catcow/100/100',
-  qoy: 'https://picsum.photos/seed/catsheep/100/100',
-  ot: 'https://picsum.photos/seed/cathorse/100/100',
-  echki: 'https://picsum.photos/seed/catgoat/100/100',
-  yem: 'https://picsum.photos/seed/catwheat/100/100',
-};
-
 function catChip(c, isAll){
   const active = activeCat === (isAll ? 'all' : c.id);
-  const iconHtml = isAll
-    ? `<span class="ic">${ICON.grid}</span>`
-    : `<div style="width:26px;height:26px;border-radius:50%;background-image:url('${CATEGORY_PHOTO[c.id]}');background-size:cover;background-position:center;"></div>`;
   return `<button class="cat ${active?'active':''}" onclick="filterCat('${isAll?'all':c.id}')">
-    ${iconHtml}${isAll?'Barchasi':c.name}
+    <span class="ic">${isAll?ICON.grid:ICON[c.icon]}</span>${isAll?'Barchasi':c.name}
   </button>`;
 }
 
@@ -768,8 +758,12 @@ function cardHTML(l){
   const rating = l.sellerProfile?.rating || 0;
   const reviews = l.sellerProfile?.rating_count || 0;
   const faved = favoriteIds.has(String(l.id));
+  const catIcon = CATEGORIES.find(c=>c.id===l.category)?.icon || 'cow';
+  const thumbStyle = img ? `background-image:url('${img}');` : `background:var(--line); display:flex; align-items:center; justify-content:center;`;
+  const thumbInner = img ? '' : `<div style="font-size:34px; color:#B8AF98;">${ICON[catIcon]}</div>`;
   return `<div class="card" onclick="openDetail('${l.id}')" style="cursor:pointer;">
-    <div class="thumb" style="background-image:url('${img}');">
+    <div class="thumb" style="${thumbStyle}">
+      ${thumbInner}
       <div class="badge">${ICON.phone} Telefon tasdiqlangan</div>
     </div>
     <div class="info">
@@ -805,7 +799,7 @@ function firstImage(l){
     const sorted = [...l.listing_images].sort((a,b)=>a.sort_order-b.sort_order);
     return sorted[0].url;
   }
-  return `https://picsum.photos/seed/listing${l.id}/300/300`;
+  return null;
 }
 
 async function loadHomeFeed(){
@@ -825,13 +819,33 @@ async function loadSearchFeed(){
 function renderTypeGrid(){
   document.getElementById('typeGrid').innerHTML = CATEGORIES.filter(c=>c.id!=='yem').map((c,i)=>`
     <div class="type-card ${i===0?'sel':''}" data-cat="${c.id}" onclick="selectType(this)">
-      <div style="width:40px;height:40px;border-radius:50%;background-image:url('${CATEGORY_PHOTO[c.id]}');background-size:cover;background-position:center;"></div>${c.name}
+      <div class="ic">${ICON[c.icon]}</div>${c.name}
     </div>`).join('');
 }
+const BREED_SUGGESTIONS = {
+  qoramol: ['Simmental','Angus','Holstein',"Qizil cho'l",'Mahalliy'],
+  qoy: ["Qorako'l",'Edilbay','Hisor','Jaydari','Mahalliy'],
+  ot: ['Qarabayir','Lokay',"Qirg'iz oti",'Ahaltekin','Mahalliy'],
+  echki: ['Angora','Boer','Mahalliy'],
+};
+const GENDER_SUGGESTIONS = {
+  qoramol: ['Buqa','Sigir',"G'unajin"],
+  qoy: ["Qo'chqor",'Sovliq',"Qo'zi"],
+  ot: ["Ayg'ir",'Baytal','Toy'],
+  echki: ['Serka','Echki','Uloq'],
+};
+function updateBreedGenderSuggestions(cat){
+  document.getElementById('breedDatalist').innerHTML = (BREED_SUGGESTIONS[cat]||[]).map(b=>`<option value="${b}">`).join('');
+  document.getElementById('genderDatalist').innerHTML = (GENDER_SUGGESTIONS[cat]||[]).map(g=>`<option value="${g}">`).join('');
+}
+
 function selectType(el){
   document.querySelectorAll('.type-card').forEach(t=>t.classList.remove('sel'));
   el.classList.add('sel');
   document.getElementById('selectedCategory').value = el.dataset.cat;
+  updateBreedGenderSuggestions(el.dataset.cat);
+  document.getElementById('breedInput').value = '';
+  document.getElementById('genderInput').value = '';
 }
 function selectPill(el){
   Array.from(el.parentElement.children).forEach(p=>p.classList.remove('sel'));
@@ -920,9 +934,14 @@ async function loadMyListings(){
     el.innerHTML = `<div class="placeholder-screen"><div class="ic">${ICON.cow}</div><div class="t">Hali e'loningiz yo'q</div></div>`;
     return;
   }
-  el.innerHTML = items.map(it=>`
+  el.innerHTML = items.map(it=>{
+    const img = firstImage(it);
+    const catIcon = CATEGORIES.find(c=>c.id===it.category)?.icon || 'cow';
+    const phStyle = img ? `background-image:url('${img}');` : `background:var(--line); display:flex; align-items:center; justify-content:center;`;
+    const phInner = img ? '' : `<span style="font-size:22px; color:#B8AF98;">${ICON[catIcon]}</span>`;
+    return `
     <div class="my-card">
-      <div class="ph" style="background-image:url('${firstImage(it)}')"></div>
+      <div class="ph" style="${phStyle}">${phInner}</div>
       <div style="flex:1;">
         <div style="font-weight:800; font-size:13.5px;">${it.breed || ''} ${it.gender || ''}</div>
         <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${fmtPrice(it.price)} so'm</div>
@@ -934,7 +953,8 @@ async function loadMyListings(){
         <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="deleteListing('${it.id}')">${ICON.trash} O'chirish</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function markSold(id){
@@ -963,8 +983,9 @@ async function openDetail(id){
   if(l.listing_images && l.listing_images.length){
     currentDetailImages = [...l.listing_images].sort((a,b)=>a.sort_order-b.sort_order).map(im=>im.url);
   } else {
-    currentDetailImages = [firstImage(l)];
+    currentDetailImages = [];
   }
+  currentDetailCategory = l.category;
   currentDetailIndex = 0;
   renderDetailImage();
   document.getElementById('detailHeartBtn').innerHTML = favoriteIds.has(String(l.id)) ? ICON.heartFilled : ICON.heart;
@@ -1018,6 +1039,7 @@ async function editListing(id){
 
   document.querySelectorAll('.type-card').forEach(t => t.classList.toggle('sel', t.dataset.cat === it.category));
   document.getElementById('selectedCategory').value = it.category;
+  updateBreedGenderSuggestions(it.category);
   document.getElementById('breedInput').value = it.breed || '';
   document.getElementById('genderInput').value = it.gender || '';
   document.getElementById('ageInput').value = it.age_text || '';
@@ -1037,14 +1059,15 @@ function startAddFlow(){
   selectedFiles = [];
   document.getElementById('uploadStatus').textContent = '';
   renderShotPreviews();
-  document.getElementById('breedInput').selectedIndex = 0;
-  document.getElementById('genderInput').selectedIndex = 0;
+  document.getElementById('breedInput').value = '';
+  document.getElementById('genderInput').value = '';
   document.getElementById('ageInput').value = '';
   document.getElementById('weightInput').value = '';
   document.getElementById('colorInput').selectedIndex = 0;
   document.getElementById('priceInput').value = '';
   document.querySelectorAll('.type-card').forEach((t,i)=>t.classList.toggle('sel', i===0));
   document.getElementById('selectedCategory').value = 'qoramol';
+  updateBreedGenderSuggestions('qoramol');
   goStep(1);
 }
 function goStep(n){
@@ -1372,9 +1395,30 @@ async function toggleFavoriteDetail(){
 let currentDetailImages = [];
 let currentDetailIndex = 0;
 
+let currentDetailCategory = 'qoramol';
 function renderDetailImage(){
-  const img = currentDetailImages[currentDetailIndex] || `https://picsum.photos/seed/listingfallback/700/500`;
-  document.getElementById('detailImg').style.backgroundImage = `url('${img}')`;
+  const heroEl = document.getElementById('detailImg');
+  if(currentDetailImages.length === 0){
+    heroEl.style.backgroundImage = 'none';
+    heroEl.style.background = 'var(--line)';
+    const catIcon = CATEGORIES.find(c=>c.id===currentDetailCategory)?.icon || 'cow';
+    document.getElementById('detailImgCount').innerHTML = '';
+    let ph = document.getElementById('detailNoPhotoIcon');
+    if(!ph){
+      ph = document.createElement('div');
+      ph.id = 'detailNoPhotoIcon';
+      ph.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:64px; color:#B8AF98;';
+      heroEl.appendChild(ph);
+    }
+    ph.innerHTML = ICON[catIcon];
+    document.getElementById('detailThumbRow').innerHTML = '';
+    return;
+  }
+  const existingPh = document.getElementById('detailNoPhotoIcon');
+  if(existingPh) existingPh.remove();
+  heroEl.style.background = 'none';
+  const img = currentDetailImages[currentDetailIndex];
+  heroEl.style.backgroundImage = `url('${img}')`;
   document.getElementById('detailImgCount').textContent = `${currentDetailIndex+1} / ${currentDetailImages.length}`;
   const row = document.getElementById('detailThumbRow');
   if(currentDetailImages.length > 1){
@@ -1482,10 +1526,12 @@ mountIcon('navIcUser', 'user');
 mountIcon('chatEmptyIconMount', 'chat');
 mountIcon('locPinMount', 'mapPin');
 document.getElementById('regionsDatalist').innerHTML = REGIONS.map(r=>`<option value="${r}">`).join('');
+mountIcon('logoIconMount', 'cow');
 
 renderCats();
 renderTypeGrid();
 renderShots();
+updateBreedGenderSuggestions('qoramol');
 
 </script>
 </body>
