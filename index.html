@@ -896,6 +896,31 @@ function removeSelectedFile(i){
   renderShotPreviews();
 }
 
+function compressImage(file, maxWidth = 1280, quality = 0.75){
+  return new Promise((resolve) => {
+    if(!file.type.startsWith('image/')){ resolve(file); return; }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e) => { img.src = e.target.result; };
+    img.onload = () => {
+      let { width, height } = img;
+      if(width > maxWidth){
+        height = Math.round(height * (maxWidth / width));
+        width = maxWidth;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        if(!blob){ resolve(file); return; }
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadSelectedPhotos(listingId){
   const status = document.getElementById('uploadStatus');
   uploadedPhotoUrls = [];
@@ -904,9 +929,9 @@ async function uploadSelectedPhotos(listingId){
   const errors = [];
 
   await Promise.all(selectedFiles.map(async (file, i) => {
-    const ext = file.name.split('.').pop();
-    const path = `${listingId}/${Date.now()}_${i}.${ext}`;
-    const { error: upErr } = await sb.storage.from('listing-photos').upload(path, file);
+    const compressed = await compressImage(file);
+    const path = `${listingId}/${Date.now()}_${i}.jpg`;
+    const { error: upErr } = await sb.storage.from('listing-photos').upload(path, compressed);
     if(upErr){
       errors.push(`Rasm ${i+1}: ${upErr.message}`);
     } else {
@@ -1537,5 +1562,9 @@ renderShots();
 updateBreedGenderSuggestions('qoramol');
 
 </script>
+<script>
+  window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
 </body>
 </html>
