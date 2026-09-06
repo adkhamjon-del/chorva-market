@@ -297,7 +297,7 @@
     <div class="topbar">
       <div class="brand" style="justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:9px;">
-          <div class="logo" id="logoIconMount"></div>
+          <div class="logo">🐄</div>
           <div class="name">Chorva Market<span>Molni bozorga olib bormang</span></div>
         </div>
         <div class="bell" id="bellIconMount"></div>
@@ -729,10 +729,14 @@ function regionOptionsHtml(selected){
 let activeCat = 'all';
 let currentUser = null;
 
+const CATEGORY_EMOJI = {
+  qoramol: '🐄', qoy: '🐑', ot: '🐎', echki: '🐐', yem: '🌾'
+};
+
 function catChip(c, isAll){
   const active = activeCat === (isAll ? 'all' : c.id);
   return `<button class="cat ${active?'active':''}" onclick="filterCat('${isAll?'all':c.id}')">
-    <span class="ic">${isAll?ICON.grid:ICON[c.icon]}</span>${isAll?'Barchasi':c.name}
+    <span class="ic" style="font-size:21px;">${isAll?ICON.grid:CATEGORY_EMOJI[c.id]}</span>${isAll?'Barchasi':c.name}
   </button>`;
 }
 
@@ -819,7 +823,7 @@ async function loadSearchFeed(){
 function renderTypeGrid(){
   document.getElementById('typeGrid').innerHTML = CATEGORIES.filter(c=>c.id!=='yem').map((c,i)=>`
     <div class="type-card ${i===0?'sel':''}" data-cat="${c.id}" onclick="selectType(this)">
-      <div class="ic">${ICON[c.icon]}</div>${c.name}
+      <div class="ic" style="font-size:30px;">${CATEGORY_EMOJI[c.id]}</div>${c.name}
     </div>`).join('');
 }
 const BREED_SUGGESTIONS = {
@@ -1526,7 +1530,6 @@ mountIcon('navIcUser', 'user');
 mountIcon('chatEmptyIconMount', 'chat');
 mountIcon('locPinMount', 'mapPin');
 document.getElementById('regionsDatalist').innerHTML = REGIONS.map(r=>`<option value="${r}">`).join('');
-mountIcon('logoIconMount', 'cow');
 
 renderCats();
 renderTypeGrid();
