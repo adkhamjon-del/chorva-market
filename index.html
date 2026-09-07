@@ -587,7 +587,7 @@
       <div style="font-weight:800; font-size:13px;" id="mapCount">Xarita</div>
       <div style="width:36px;"></div>
     </div>
-    <div id="mapContainer" style="flex:1; min-height:400px;"></div>
+    <div id="mapContainer" style="flex:1; min-height:500px; width:100%;"></div>
   </section>
 
   <!-- ============ SAVATCHA (saqlangan e'lonlar) ============ -->
@@ -921,6 +921,10 @@ function findNearMe(){
 
 async function openMapScreen(){
   showScreen('map');
+  if(typeof L === 'undefined'){
+    document.getElementById('mapContainer').innerHTML = `<div class="placeholder-screen"><div class="t">Xarita kutubxonasi yuklanmadi</div><div style="font-size:12.5px;">Internetni tekshirib, sahifani qayta yuklang.</div></div>`;
+    return;
+  }
   const { data: listings } = await sb.from('listings').select('*').eq('status','active').not('lat','is',null).not('lng','is',null).limit(200);
   const container = document.getElementById('mapContainer');
   if(mapInstance){ mapInstance.remove(); mapInstance = null; }
@@ -937,6 +941,7 @@ async function openMapScreen(){
     marker.bindPopup(`<b>${l.breed||''} ${l.gender||''}</b><br>${fmtPrice(l.price)} so'm<br><a href="#" onclick="openDetail('${l.id}'); return false;">Ko'rish →</a>`);
   });
   document.getElementById('mapCount').textContent = `${(listings||[]).length} ta e'lon xaritada`;
+  setTimeout(() => { if(mapInstance) mapInstance.invalidateSize(); }, 200);
 }
 
 let activeSearchCat = 'all';
