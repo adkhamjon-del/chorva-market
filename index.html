@@ -249,6 +249,11 @@
 
   /* search */
   .filter-row{display:flex; gap:8px; padding:14px 16px 4px; overflow-x:auto;}
+  .katalog-row{display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--line); cursor:pointer;}
+  .katalog-row .kicon{width:38px; height:38px; border-radius:10px; background:var(--green-soft); display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;}
+  .katalog-row .kname{flex:1; font-weight:700; font-size:14px;}
+  .katalog-row.active{background:var(--green-soft); border-radius:10px;}
+  .katalog-row .kchevron{color:var(--sage); font-size:14px;}
   .fchip{white-space:nowrap; padding:8px 13px; border-radius:20px; border:1px solid var(--line); background:var(--paper); font-size:12px; font-weight:700; color:var(--sage);}
   .results-count{padding:12px 16px 6px; font-size:12.5px; color:var(--sage); font-weight:700;}
 
@@ -545,6 +550,7 @@
     <div class="filter-row">
       <div class="fchip">Hudud ▾</div><div class="fchip">Narx ▾</div><div class="fchip">Vazn ▾</div><div class="fchip">Zot ▾</div><div class="fchip">Sog'liq ▾</div>
     </div>
+    <div id="katalogList" style="padding:14px 16px 4px;"></div>
     <div class="results-count" id="resultsCount"></div>
     <div class="content" style="padding-top:0;">
       <div class="feed" id="searchFeed"></div>
@@ -561,6 +567,12 @@
       <div class="mtab">Sotilgan</div>
     </div>
     <div style="margin-top:12px;" id="myListFeed"></div>
+  </section>
+
+  <!-- ============ SAVATCHA (saqlangan e'lonlar) ============ -->
+  <section class="screen" id="screen-savatcha">
+    <div class="topbar flat"><div class="subbar-title"><h1>Savatcha</h1></div></div>
+    <div class="content" style="padding-top:0;"><div class="feed" id="savatchaFeed"></div></div>
   </section>
 
   <!-- ============ MESSAGES ============ -->
@@ -599,6 +611,13 @@
     <div class="content">
       <div class="field"><label>To'liq ismingiz</label><input id="profileNameInput" placeholder="Masalan: Rustam Qodirov"></div>
       <div class="field"><label>Telefon raqamingiz</label><input id="profilePhoneInput" placeholder="+998901234567"></div>
+      <div class="field"><label>Hisob turi</label>
+        <div class="pill-select" style="padding:0;" id="profileAccountTypePills">
+          <div class="pill-opt sel" data-val="shaxsiy" onclick="selectPill(this); toggleFarmNameField('profile')">Shaxsiy</div>
+          <div class="pill-opt" data-val="ferma" onclick="selectPill(this); toggleFarmNameField('profile')">Ferma xo'jaligi</div>
+        </div>
+      </div>
+      <div class="field" id="profileFarmNameField" style="display:none;"><label>Ferma nomi</label><input id="profileFarmNameInput" placeholder="Masalan: Samarqand Agro Farm"></div>
       <div class="field"><label>Viloyat</label>
         <input id="profileRegionInput" list="regionsDatalist" placeholder="Viloyatni tanlang yoki yozing">
       </div>
@@ -619,6 +638,13 @@
       </div>
       <div class="field"><label>To'liq ismingiz</label><input id="cpNameInput" placeholder="Masalan: Rustam Qodirov"></div>
       <div class="field"><label>Telefon raqamingiz</label><input id="cpPhoneInput" placeholder="+998901234567"></div>
+      <div class="field"><label>Hisob turi</label>
+        <div class="pill-select" style="padding:0;" id="cpAccountTypePills">
+          <div class="pill-opt sel" data-val="shaxsiy" onclick="selectPill(this); toggleFarmNameField('cp')">Shaxsiy</div>
+          <div class="pill-opt" data-val="ferma" onclick="selectPill(this); toggleFarmNameField('cp')">Ferma xo'jaligi</div>
+        </div>
+      </div>
+      <div class="field" id="cpFarmNameField" style="display:none;"><label>Ferma nomi</label><input id="cpFarmNameInput" placeholder="Masalan: Samarqand Agro Farm"></div>
       <div class="field"><label>Viloyat</label>
         <input id="cpRegionInput" list="regionsDatalist" placeholder="Viloyatni tanlang yoki yozing">
       </div>
@@ -633,6 +659,7 @@
     <button class="navbtn active" data-tab="home" onclick="tabTo('home')"><span class="ic" id="navIcHome"></span>Bosh sahifa</button>
     <button class="navbtn" data-tab="search" onclick="tabTo('search')"><span class="ic" id="navIcSearch"></span>Qidirish</button>
     <button class="navbtn" data-tab="add" onclick="startAddFlow()"><span class="ic" id="navIcPlus"></span>Sotish</button>
+    <button class="navbtn" data-tab="savatcha" onclick="tabTo('savatcha')"><span class="ic" id="navIcSavatcha"></span>Savatcha</button>
     <button class="navbtn" data-tab="messages" onclick="tabTo('messages')"><span class="ic" id="navIcChat"></span>Xabarlar</button>
     <button class="navbtn" data-tab="profile" onclick="tabTo('profile')"><span class="ic" id="navIcUser"></span>Profil</button>
   </nav>
@@ -813,11 +840,29 @@ async function loadHomeFeed(){
   document.getElementById('homeFeed').innerHTML = list.map(cardHTML).join('') || `<div class="placeholder-screen"><div class="ic">${ICON.cow}</div><div class="t">Bu turdagi e'lon topilmadi</div></div>`;
 }
 
+let activeSearchCat = 'all';
+
 async function loadSearchFeed(){
-  const list = await fetchListings('all');
+  renderKatalogList();
+  const list = await fetchListings(activeSearchCat);
   dbListingsCache = list;
   document.getElementById('searchFeed').innerHTML = list.map(cardHTML).join('');
   document.getElementById('resultsCount').textContent = `${list.length} ta e'lon topildi`;
+}
+
+function renderKatalogList(){
+  const box = document.getElementById('katalogList');
+  box.innerHTML = CATEGORIES.map(c => `
+    <div class="katalog-row ${activeSearchCat===c.id?'active':''}" onclick="filterSearchCat('${c.id}')">
+      <div class="kicon">${CATEGORY_EMOJI[c.id]}</div>
+      <div class="kname">${c.name}</div>
+      <div class="kchevron">›</div>
+    </div>`).join('');
+}
+
+function filterSearchCat(cat){
+  activeSearchCat = (activeSearchCat === cat) ? 'all' : cat;
+  loadSearchFeed();
 }
 
 function renderTypeGrid(){
@@ -1030,9 +1075,10 @@ async function openDetail(id){
     <div class="spec"><span class="k">Holati</span><span class="v">${HEALTH_LABEL[l.health_status] || ''}</span></div>
     <div class="spec"><span class="k">Maqsadi</span><span class="v">${PURPOSE_LABEL[l.purpose] || ''}</span></div>
     <div class="spec"><span class="k">Hudud</span><span class="v">${l.region || ''}</span></div>`;
-  const sellerName = l.sellerProfile?.full_name || 'Sotuvchi';
+  const sellerName = l.sellerProfile?.account_type === 'ferma' ? (l.sellerProfile?.farm_name || l.sellerProfile?.full_name || 'Sotuvchi') : (l.sellerProfile?.full_name || 'Sotuvchi');
+  const farmBadge = l.sellerProfile?.account_type === 'ferma' ? ` <span style="font-size:10px; background:var(--green-soft); color:var(--green-deep); padding:2px 8px; border-radius:10px; font-weight:800;">FERMA</span>` : '';
   document.getElementById('sellerInitial').textContent = sellerName.split(' ').map(w=>w[0]).join('').slice(0,2) || '?';
-  document.getElementById('sellerName').textContent = sellerName;
+  document.getElementById('sellerName').innerHTML = sellerName + farmBadge;
   document.getElementById('sellerMeta').innerHTML = `${ICON.star} ${l.sellerProfile?.rating || 0} · ${l.sellerProfile?.listings_count || 0} e'lon`;
   loadComments(l.id);
   showScreen('detail');
@@ -1042,10 +1088,10 @@ function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('screen-'+name).classList.add('active');
   const nav = document.getElementById('bottomNav');
-  const tabScreens = ['home','search','messages','profile','mylistings'];
+  const tabScreens = ['home','search','messages','profile','mylistings','savatcha'];
   nav.style.display = tabScreens.includes(name) ? 'flex' : 'none';
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.remove('active'));
-  const map = {home:'home', search:'search', messages:'messages', profile:'profile'};
+  const map = {home:'home', search:'search', messages:'messages', profile:'profile', savatcha:'savatcha'};
   if(map[name]) document.querySelector(`.navbtn[data-tab="${map[name]}"]`).classList.add('active');
   window.scrollTo(0,0);
   if(name==='home') loadHomeFeed();
@@ -1053,6 +1099,7 @@ function showScreen(name){
   if(name==='mylistings') loadMyListings();
   if(name==='profile') loadProfileScreen();
   if(name==='messages') loadConversations();
+  if(name==='savatcha') loadSavatcha();
 }
 function tabTo(name){ showScreen(name); }
 
@@ -1218,6 +1265,11 @@ async function viewReceipt(id){
   showScreen('receipt');
 }
 
+function toggleFarmNameField(prefix){
+  const val = document.querySelector(`#${prefix}AccountTypePills .pill-opt.sel`)?.dataset.val;
+  document.getElementById(`${prefix}FarmNameField`).style.display = val === 'ferma' ? 'block' : 'none';
+}
+
 async function initAfterLogin(){
   const { data: { user } } = await sb.auth.getUser();
   currentUser = user;
@@ -1251,6 +1303,31 @@ async function startConversation(){
     conv = created;
   }
   openThread(conv.id);
+}
+
+async function loadSavatcha(){
+  const el = document.getElementById('savatchaFeed');
+  el.innerHTML = `<div class="placeholder-screen"><div class="ic">${ICON.heart}</div><div class="t">Yuklanmoqda...</div></div>`;
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user) return;
+  const { data: favs } = await sb.from('favorites').select('listing_id').eq('user_id', user.id).order('created_at', {ascending:false});
+  if(!favs || !favs.length){
+    el.innerHTML = `<div class="placeholder-screen"><div class="ic">${ICON.heart}</div><div class="t">Hali saqlangan e'lon yo'q</div><div style="font-size:12.5px;">Yoqqan e'lonni yurak belgisi orqali saqlang.</div></div>`;
+    return;
+  }
+  const ids = favs.map(f=>f.listing_id);
+  const { data: listings } = await sb.from('listings').select('*, listing_images(url, sort_order)').in('id', ids);
+  if(!listings || !listings.length){
+    el.innerHTML = `<div class="placeholder-screen"><div class="ic">${ICON.heart}</div><div class="t">Saqlangan e'lonlar hozircha mavjud emas</div></div>`;
+    return;
+  }
+  const sellerIds = [...new Set(listings.map(l=>l.seller_id))];
+  const { data: profs } = await sb.from('public_profiles').select('*').in('id', sellerIds);
+  const profilesMap = {};
+  (profs||[]).forEach(p=>profilesMap[p.id]=p);
+  const withProfiles = listings.map(l=>({...l, sellerProfile: profilesMap[l.seller_id]}));
+  dbListingsCache = dbListingsCache.concat(withProfiles);
+  el.innerHTML = withProfiles.map(cardHTML).join('');
 }
 
 async function loadConversations(){
@@ -1331,13 +1408,15 @@ async function completeProfile(){
   const phone = document.getElementById('cpPhoneInput').value.trim();
   const region = document.getElementById('cpRegionInput').value;
   const district = document.getElementById('cpDistrictInput').value;
+  const accountType = document.querySelector('#cpAccountTypePills .pill-opt.sel')?.dataset.val || 'shaxsiy';
+  const farmName = document.getElementById('cpFarmNameInput').value.trim();
   const msg = document.getElementById('cpMsg');
   if(!name || !phone.startsWith('+')){
     msg.textContent = "Iltimos, ismingizni va +998 bilan boshlanadigan telefon raqamingizni kiriting.";
     return;
   }
   const { data: { user } } = await sb.auth.getUser();
-  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region, district: district }).eq('id', user.id);
+  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region, district: district, account_type: accountType, farm_name: accountType==='ferma' ? farmName : null }).eq('id', user.id);
   if(error){
     msg.textContent = 'Xato: ' + error.message;
     return;
@@ -1355,7 +1434,10 @@ async function loadProfileScreen(){
     document.getElementById('profilePhoneInput').value = profile.phone || '';
     if(profile.region) document.getElementById('profileRegionInput').value = profile.region;
     if(profile.district) document.getElementById('profileDistrictInput').value = profile.district;
-    document.getElementById('profileNameDisplay').textContent = profile.full_name || 'Foydalanuvchi';
+    document.querySelectorAll('#profileAccountTypePills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === (profile.account_type || 'shaxsiy')));
+    document.getElementById('profileFarmNameField').style.display = profile.account_type === 'ferma' ? 'block' : 'none';
+    document.getElementById('profileFarmNameInput').value = profile.farm_name || '';
+    document.getElementById('profileNameDisplay').textContent = profile.account_type === 'ferma' ? (profile.farm_name || profile.full_name || 'Foydalanuvchi') : (profile.full_name || 'Foydalanuvchi');
     document.getElementById('profileAvatar').textContent = (profile.full_name || '?').split(' ').map(w=>w[0]).join('').slice(0,2);
     document.getElementById('profileMetaDisplay').innerHTML = `${ICON.star} ${profile.rating || 0} · ${profile.listings_count || 0} e'lon`;
   }
@@ -1366,9 +1448,11 @@ async function saveProfile(){
   const phone = document.getElementById('profilePhoneInput').value.trim();
   const region = document.getElementById('profileRegionInput').value;
   const district = document.getElementById('profileDistrictInput').value;
+  const accountType = document.querySelector('#profileAccountTypePills .pill-opt.sel')?.dataset.val || 'shaxsiy';
+  const farmName = document.getElementById('profileFarmNameInput').value.trim();
   const msg = document.getElementById('profileMsg');
   const { data: { user } } = await sb.auth.getUser();
-  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region, district: district }).eq('id', user.id);
+  const { error } = await sb.from('profiles').update({ full_name: name, phone: phone, region: region, district: district, account_type: accountType, farm_name: accountType==='ferma' ? farmName : null }).eq('id', user.id);
   if(error){ msg.style.color = 'var(--alert)'; msg.textContent = 'Xato: ' + error.message; return; }
   msg.style.color = 'var(--green-deep)';
   msg.textContent = 'Saqlandi.';
@@ -1552,6 +1636,7 @@ mountIcon('navIcSearch', 'search');
 mountIcon('navIcPlus', 'plus');
 mountIcon('navIcChat', 'chat');
 mountIcon('navIcUser', 'user');
+mountIcon('navIcSavatcha', 'heart');
 mountIcon('chatEmptyIconMount', 'chat');
 mountIcon('locPinMount', 'mapPin');
 document.getElementById('regionsDatalist').innerHTML = REGIONS.map(r=>`<option value="${r}">`).join('');
