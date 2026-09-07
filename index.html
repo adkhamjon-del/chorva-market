@@ -6,6 +6,8 @@
 <title>Chorva Market — V1 Preview</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root{
     --green-deep:#1D5C3A;
@@ -459,6 +461,12 @@
     <div class="row2">
       <div class="field"><label>Viloyat</label><input id="regionInput" list="regionsDatalist" placeholder="Viloyatni tanlang yoki yozing"></div>
       <div class="field"><label>Tuman / Shahar</label><input id="districtInput" placeholder="Masalan: Pastdarg'om tumani"></div>
+      <div class="field">
+        <button type="button" onclick="captureListingLocation()" id="locCaptureBtn" style="width:100%; padding:12px; border-radius:12px; border:1.5px dashed #C9C0A8; background:var(--paper); font-weight:700; font-size:13px; color:var(--green-deep); display:flex; align-items:center; justify-content:center; gap:7px;">
+          <span id="locCaptureIcon"></span> Joriy joylashuvimni belgilash
+        </button>
+        <div id="locCaptureStatus" style="font-size:11.5px; color:var(--sage); margin-top:6px; text-align:center;"></div>
+      </div>
     </div>
 
     <div class="market-hint">
@@ -548,8 +556,11 @@
       <div class="search-bar"><input placeholder="Mol, qo'y, ot, yem-xashak qidiring..." autofocus></div>
     </div>
     <div class="filter-row">
-      <div class="fchip">Hudud ▾</div><div class="fchip">Narx ▾</div><div class="fchip">Vazn ▾</div><div class="fchip">Zot ▾</div><div class="fchip">Sog'liq ▾</div>
+      <div class="fchip" onclick="openMapScreen()" style="display:flex; align-items:center; gap:5px; font-weight:800; color:var(--green-deep); border-color:var(--green-deep);"><span id="mapChipIcon"></span> Xaritada ko'rish</div>
+      <div class="fchip" onclick="findNearMe()" style="display:flex; align-items:center; gap:5px; font-weight:800; color:var(--green-deep); border-color:var(--green-deep);"><span id="nearMeChipIcon"></span> Yaqinimda</div>
+      <div class="fchip">Hudud ▾</div><div class="fchip">Narx ▾</div><div class="fchip">Vazn ▾</div>
     </div>
+    <div id="nearMeStatus" style="padding:0 16px; font-size:11.5px; color:var(--sage);"></div>
     <div id="katalogList" style="padding:14px 16px 4px;"></div>
     <div class="results-count" id="resultsCount"></div>
     <div class="content" style="padding-top:0;">
@@ -567,6 +578,16 @@
       <div class="mtab">Sotilgan</div>
     </div>
     <div style="margin-top:12px;" id="myListFeed"></div>
+  </section>
+
+  <!-- ============ MAP ============ -->
+  <section class="screen" id="screen-map">
+    <div class="subheader">
+      <button class="iconbtn" onclick="showScreen('search')">←</button>
+      <div style="font-weight:800; font-size:13px;" id="mapCount">Xarita</div>
+      <div style="width:36px;"></div>
+    </div>
+    <div id="mapContainer" style="flex:1; min-height:400px;"></div>
   </section>
 
   <!-- ============ SAVATCHA (saqlangan e'lonlar) ============ -->
@@ -840,7 +861,86 @@ async function loadHomeFeed(){
   document.getElementById('homeFeed').innerHTML = list.map(cardHTML).join('') || `<div class="placeholder-screen"><div class="ic">${ICON.cow}</div><div class="t">Bu turdagi e'lon topilmadi</div></div>`;
 }
 
+let listingLat = null, listingLng = null;
+
+function captureListingLocation(){
+  const status = document.getElementById('locCaptureStatus');
+  if(!navigator.geolocation){
+    status.textContent = "Brauzeringiz joylashuvni qo'llab-quvvatlamaydi.";
+    return;
+  }
+  status.textContent = 'Aniqlanmoqda...';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      listingLat = pos.coords.latitude;
+      listingLng = pos.coords.longitude;
+      status.textContent = `Belgilandi ✓ (${listingLat.toFixed(4)}, ${listingLng.toFixed(4)})`;
+      status.style.color = 'var(--green-deep)';
+    },
+    (err) => {
+      status.textContent = "Joylashuvni aniqlab bo'lmadi — ruxsat berilganini tekshiring.";
+      status.style.color = 'var(--alert)';
+    }
+  );
+}
+
+function haversineKm(lat1, lng1, lat2, lng2){
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+let myLat = null, myLng = null;
+let mapInstance = null;
+
+function findNearMe(){
+  const status = document.getElementById('nearMeStatus');
+  if(!navigator.geolocation){
+    alert("Brauzeringiz joylashuvni qo'llab-quvvatlamaydi.");
+    return;
+  }
+  status.textContent = 'Joylashuvingiz aniqlanmoqda...';
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      myLat = pos.coords.latitude;
+      myLng = pos.coords.longitude;
+      status.textContent = '';
+      const list = await fetchListings('all');
+      const withDist = list.filter(l => l.lat && l.lng).map(l => ({...l, distKm: haversineKm(myLat, myLng, l.lat, l.lng)})).sort((a,b)=>a.distKm-b.distKm);
+      dbListingsCache = withDist;
+      document.getElementById('searchFeed').innerHTML = withDist.length
+        ? withDist.map(cardHTML).join('')
+        : `<div class="placeholder-screen"><div class="ic">${ICON.mapPin}</div><div class="t">Yaqin atrofda koordinatali e'lon topilmadi</div></div>`;
+      document.getElementById('resultsCount').textContent = `${withDist.length} ta e'lon (yaqinlik bo'yicha)`;
+    },
+    () => { status.textContent = "Joylashuvga ruxsat berilmadi."; }
+  );
+}
+
+async function openMapScreen(){
+  showScreen('map');
+  const { data: listings } = await sb.from('listings').select('*').eq('status','active').not('lat','is',null).not('lng','is',null).limit(200);
+  const container = document.getElementById('mapContainer');
+  if(mapInstance){ mapInstance.remove(); mapInstance = null; }
+  const center = (myLat && myLng) ? [myLat, myLng] : [39.6542, 66.9597]; // Samarqand markazi — zaxira
+  mapInstance = L.map(container).setView(center, 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(mapInstance);
+  if(myLat && myLng){
+    L.circleMarker([myLat, myLng], {radius:7, color:'#1D5C3A', fillColor:'#1D5C3A', fillOpacity:1}).addTo(mapInstance).bindPopup('Siz shu yerdasiz');
+  }
+  (listings||[]).forEach(l => {
+    const marker = L.marker([l.lat, l.lng]).addTo(mapInstance);
+    marker.bindPopup(`<b>${l.breed||''} ${l.gender||''}</b><br>${fmtPrice(l.price)} so'm<br><a href="#" onclick="openDetail('${l.id}'); return false;">Ko'rish →</a>`);
+  });
+  document.getElementById('mapCount').textContent = `${(listings||[]).length} ta e'lon xaritada`;
+}
+
 let activeSearchCat = 'all';
+
 
 async function loadSearchFeed(){
   renderKatalogList();
@@ -1110,7 +1210,10 @@ async function editListing(id){
   if(error || !it){ alert('Xato: e\'lon topilmadi.'); return; }
   editingListingId = id;
   selectedFiles = [];
+  listingLat = it.lat || null;
+  listingLng = it.lng || null;
   document.getElementById('uploadStatus').textContent = "Mavjud rasmlar saqlanadi. Yangi rasm qo'shishni xohlasangiz, tanlang.";
+  document.getElementById('locCaptureStatus').textContent = (it.lat && it.lng) ? `Mavjud: (${it.lat.toFixed(4)}, ${it.lng.toFixed(4)})` : '';
   renderShotPreviews();
 
   document.querySelectorAll('.type-card').forEach(t => t.classList.toggle('sel', t.dataset.cat === it.category));
@@ -1133,6 +1236,9 @@ async function editListing(id){
 function startAddFlow(){
   editingListingId = null;
   selectedFiles = [];
+  listingLat = null; listingLng = null;
+  const locStatus = document.getElementById('locCaptureStatus');
+  if(locStatus){ locStatus.textContent = ''; }
   document.getElementById('uploadStatus').textContent = '';
   renderShotPreviews();
   document.getElementById('breedInput').value = '';
@@ -1197,6 +1303,8 @@ async function publishListing(){
     price: priceVal,
     region: document.getElementById('regionInput').value,
     district: document.getElementById('districtInput').value,
+    lat: listingLat,
+    lng: listingLng,
   };
 
   let data, error;
@@ -1637,6 +1745,9 @@ mountIcon('navIcPlus', 'plus');
 mountIcon('navIcChat', 'chat');
 mountIcon('navIcUser', 'user');
 mountIcon('navIcSavatcha', 'heart');
+mountIcon('mapChipIcon', 'mapPin');
+mountIcon('nearMeChipIcon', 'mapPin');
+mountIcon('locCaptureIcon', 'mapPin');
 mountIcon('chatEmptyIconMount', 'chat');
 mountIcon('locPinMount', 'mapPin');
 document.getElementById('regionsDatalist').innerHTML = REGIONS.map(r=>`<option value="${r}">`).join('');
