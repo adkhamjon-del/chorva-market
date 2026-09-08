@@ -418,6 +418,7 @@
     <div class="shots-row" id="shotsRow"></div>
     <div id="uploadStatus" style="padding:0 16px 10px; font-size:11.5px; color:var(--sage);"></div>
 
+    <div id="animalFieldsGroup">
     <div class="field"><label>Zot / Naslining turi</label>
       <input id="breedInput" list="breedDatalist" placeholder="Masalan: Simmental">
       <datalist id="breedDatalist"></datalist>
@@ -439,6 +440,26 @@
       <div class="pill-select" style="padding:0;" id="purposePills">
         <div class="pill-opt sel" data-val="gosht" onclick="selectPill(this)">Go'sht</div><div class="pill-opt" data-val="sut" onclick="selectPill(this)">Sut</div><div class="pill-opt" data-val="nasl" onclick="selectPill(this)">Nasl</div>
       </div>
+    </div>
+    </div>
+
+    <div id="productFieldsGroup" style="display:none;">
+    <div class="field"><label>Mahsulot nomi</label>
+      <input id="productNameInput" list="productNameDatalist" placeholder="Masalan: Pichan">
+      <datalist id="productNameDatalist"></datalist>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Miqdori</label><input id="quantityInput" type="number" placeholder="Masalan: 500"></div>
+      <div class="field"><label>O'lchov birligi</label>
+        <select id="unitInput">
+          <option value="kg">kg</option>
+          <option value="tonna">tonna</option>
+          <option value="boglam">bog'lam</option>
+          <option value="qop">qop</option>
+          <option value="dona">dona</option>
+        </select>
+      </div>
+    </div>
     </div>
 
     <div class="step-footer">
@@ -558,7 +579,7 @@
     <div class="filter-row">
       <div class="fchip" onclick="openMapScreen()" style="display:flex; align-items:center; gap:5px; font-weight:800; color:var(--green-deep); border-color:var(--green-deep);"><span id="mapChipIcon"></span> Xaritada ko'rish</div>
       <div class="fchip" onclick="findNearMe()" style="display:flex; align-items:center; gap:5px; font-weight:800; color:var(--green-deep); border-color:var(--green-deep);"><span id="nearMeChipIcon"></span> Yaqinimda</div>
-      <div class="fchip">Hudud ▾</div><div class="fchip">Narx ▾</div><div class="fchip">Vazn ▾</div>
+      <div class="fchip" id="chipHudud" onclick="filterByHudud()">Hudud ▾</div><div class="fchip" id="chipNarx" onclick="filterByNarx()">Narx ▾</div><div class="fchip" id="chipVazn" onclick="filterByVazn()">Vazn ▾</div>
     </div>
     <div id="nearMeStatus" style="padding:0 16px; font-size:11.5px; color:var(--sage);"></div>
     <div id="katalogList" style="padding:14px 16px 4px;"></div>
@@ -762,6 +783,7 @@ const CATEGORIES = [
   {id:'ot', name:'Ot', icon:'horse'},
   {id:'echki', name:'Echki', icon:'goat'},
   {id:'yem', name:'Yem-xashak', icon:'wheat'},
+  {id:'fermer', name:'Fermer mahsuloti', icon:'wheat'},
 ];
 
 const REGIONS = [
@@ -778,8 +800,19 @@ let activeCat = 'all';
 let currentUser = null;
 
 const CATEGORY_EMOJI = {
-  qoramol: '🐄', qoy: '🐑', ot: '🐎', echki: '🐐', yem: '🌾'
+  qoramol: '🐄', qoy: '🐑', ot: '🐎', echki: '🐐', yem: '🌾', fermer: '🥕'
 };
+
+const PRODUCT_NAME_SUGGESTIONS = {
+  yem: ['Pichan','Somon','Beda','Silos','Arpa',"Bug'doy","Makkajo'xori poyasi",'Kombikorm','Kepak'],
+  fermer: ['Pomidor','Bodring','Kartoshka','Piyoz',"Ko'chat","Urug'",'Olma','Uzum'],
+};
+function updateProductSuggestions(cat){
+  const dl = document.getElementById('productNameDatalist');
+  if(dl) dl.innerHTML = (PRODUCT_NAME_SUGGESTIONS[cat]||[]).map(p=>`<option value="${p}">`).join('');
+}
+const ANIMAL_CATS = ['qoramol','qoy','ot','echki'];
+const UNIT_LABEL = { kg:'kg', tonna:'tonna', boglam:"bog'lam", qop:'qop', dona:'dona' };
 
 function catChip(c, isAll){
   const active = activeCat === (isAll ? 'all' : c.id);
@@ -813,15 +846,20 @@ function cardHTML(l){
   const catIcon = CATEGORIES.find(c=>c.id===l.category)?.icon || 'cow';
   const thumbStyle = img ? `background-image:url('${img}');` : `background:var(--line); display:flex; align-items:center; justify-content:center;`;
   const thumbInner = img ? '' : `<div style="font-size:34px; color:#B8AF98;">${ICON[catIcon]}</div>`;
+  const isAnimal = ANIMAL_CATS.includes(l.category);
+  const title = isAnimal ? `${l.breed || ''} ${l.gender || ''}` : (l.product_name || '');
+  const metaLine = isAnimal
+    ? `<span>~${l.weight_kg || '—'} kg</span><span>${l.age_text || ''}</span>`
+    : `<span>${l.quantity || '—'} ${UNIT_LABEL[l.unit] || l.unit || ''}</span>${l.quantity ? `<span>≈ ${fmtPrice(Math.round(l.price/l.quantity))} so'm/${UNIT_LABEL[l.unit]||''}</span>` : ''}`;
   return `<div class="card" onclick="openDetail('${l.id}')" style="cursor:pointer;">
     <div class="thumb" style="${thumbStyle}">
       ${thumbInner}
       <div class="badge">${ICON.phone} Telefon tasdiqlangan</div>
     </div>
     <div class="info">
-      <div class="title">${l.breed || ''} ${l.gender || ''}</div>
+      <div class="title">${title}</div>
       <div class="price mono">${fmtPrice(l.price)} so'm</div>
-      <div class="meta"><span>~${l.weight_kg || '—'} kg</span><span>${l.age_text || ''}</span></div>
+      <div class="meta">${metaLine}</div>
       <div class="meta">${l.region || ''}</div>
       <div class="bottom-row">
         <div class="stars">${ICON.star} ${rating} <span>(${reviews})</span></div>
@@ -945,14 +983,50 @@ async function openMapScreen(){
 }
 
 let activeSearchCat = 'all';
-
+let searchBaseList = [];
+let filterState = {region:'', minPrice:null, maxPrice:null, minWeight:null, maxWeight:null};
 
 async function loadSearchFeed(){
   renderKatalogList();
-  const list = await fetchListings(activeSearchCat);
+  searchBaseList = await fetchListings(activeSearchCat);
+  applyFiltersAndRender();
+}
+
+function applyFiltersAndRender(){
+  let list = searchBaseList;
+  if(filterState.region) list = list.filter(l => (l.region||'').toLowerCase().includes(filterState.region.toLowerCase()));
+  if(filterState.minPrice) list = list.filter(l => l.price >= filterState.minPrice);
+  if(filterState.maxPrice) list = list.filter(l => l.price <= filterState.maxPrice);
+  if(filterState.minWeight) list = list.filter(l => !l.weight_kg || l.weight_kg >= filterState.minWeight);
+  if(filterState.maxWeight) list = list.filter(l => !l.weight_kg || l.weight_kg <= filterState.maxWeight);
   dbListingsCache = list;
-  document.getElementById('searchFeed').innerHTML = list.map(cardHTML).join('');
+  document.getElementById('searchFeed').innerHTML = list.map(cardHTML).join('') || `<div class="placeholder-screen"><div class="t">Hech narsa topilmadi</div></div>`;
   document.getElementById('resultsCount').textContent = `${list.length} ta e'lon topildi`;
+  document.getElementById('chipHudud').textContent = filterState.region ? `${filterState.region} ✕` : 'Hudud ▾';
+  document.getElementById('chipNarx').textContent = (filterState.minPrice||filterState.maxPrice) ? `Narx ✕` : 'Narx ▾';
+  document.getElementById('chipVazn').textContent = (filterState.minWeight||filterState.maxWeight) ? `Vazn ✕` : 'Vazn ▾';
+}
+
+function filterByHudud(){
+  if(filterState.region){ filterState.region=''; applyFiltersAndRender(); return; }
+  const val = prompt("Hududni kiriting (masalan: Samarqand viloyati):", '');
+  if(val){ filterState.region = val.trim(); applyFiltersAndRender(); }
+}
+function filterByNarx(){
+  if(filterState.minPrice || filterState.maxPrice){ filterState.minPrice=null; filterState.maxPrice=null; applyFiltersAndRender(); return; }
+  const min = prompt("Minimal narx (so'm), bo'sh qoldiring — cheklanmagan:", '');
+  const max = prompt("Maksimal narx (so'm), bo'sh qoldiring — cheklanmagan:", '');
+  filterState.minPrice = min ? parseInt(min.replace(/\D/g,'')) : null;
+  filterState.maxPrice = max ? parseInt(max.replace(/\D/g,'')) : null;
+  applyFiltersAndRender();
+}
+function filterByVazn(){
+  if(filterState.minWeight || filterState.maxWeight){ filterState.minWeight=null; filterState.maxWeight=null; applyFiltersAndRender(); return; }
+  const min = prompt("Minimal vazn (kg):", '');
+  const max = prompt("Maksimal vazn (kg):", '');
+  filterState.minWeight = min ? parseFloat(min) : null;
+  filterState.maxWeight = max ? parseFloat(max) : null;
+  applyFiltersAndRender();
 }
 
 function renderKatalogList(){
@@ -971,7 +1045,7 @@ function filterSearchCat(cat){
 }
 
 function renderTypeGrid(){
-  document.getElementById('typeGrid').innerHTML = CATEGORIES.filter(c=>c.id!=='yem').map((c,i)=>`
+  document.getElementById('typeGrid').innerHTML = CATEGORIES.map((c,i)=>`
     <div class="type-card ${i===0?'sel':''}" data-cat="${c.id}" onclick="selectType(this)">
       <div class="ic" style="font-size:30px;">${CATEGORY_EMOJI[c.id]}</div>${c.name}
     </div>`).join('');
@@ -996,10 +1070,20 @@ function updateBreedGenderSuggestions(cat){
 function selectType(el){
   document.querySelectorAll('.type-card').forEach(t=>t.classList.remove('sel'));
   el.classList.add('sel');
-  document.getElementById('selectedCategory').value = el.dataset.cat;
-  updateBreedGenderSuggestions(el.dataset.cat);
-  document.getElementById('breedInput').value = '';
-  document.getElementById('genderInput').value = '';
+  const cat = el.dataset.cat;
+  document.getElementById('selectedCategory').value = cat;
+  const isAnimal = ANIMAL_CATS.includes(cat);
+  document.getElementById('animalFieldsGroup').style.display = isAnimal ? 'block' : 'none';
+  document.getElementById('productFieldsGroup').style.display = isAnimal ? 'none' : 'block';
+  if(isAnimal){
+    updateBreedGenderSuggestions(cat);
+    document.getElementById('breedInput').value = '';
+    document.getElementById('genderInput').value = '';
+  } else {
+    updateProductSuggestions(cat);
+    document.getElementById('productNameInput').value = '';
+    document.getElementById('quantityInput').value = '';
+  }
 }
 function selectPill(el){
   Array.from(el.parentElement.children).forEach(p=>p.classList.remove('sel'));
@@ -1122,7 +1206,7 @@ async function loadMyListings(){
     <div class="my-card">
       <div class="ph" style="${phStyle}">${phInner}</div>
       <div style="flex:1;">
-        <div style="font-weight:800; font-size:13.5px;">${it.breed || ''} ${it.gender || ''}</div>
+        <div style="font-weight:800; font-size:13.5px;">${ANIMAL_CATS.includes(it.category) ? `${it.breed || ''} ${it.gender || ''}` : (it.product_name || '')}</div>
         <div class="mono" style="font-size:13px; color:var(--green-deep); font-weight:600; margin:2px 0 5px;">${fmtPrice(it.price)} so'm</div>
         <span class="status-badge ${it.status==='active'?'active':'sold'}"><span class="dot" style="width:7px;height:7px;border-radius:50%;background:${it.status==='active'?'#3E9A5F':'#C1443B'};display:inline-block;"></span> ${it.status==='active'?'FAOL':'SOTILDI'}</span>
         <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
@@ -1168,10 +1252,11 @@ async function openDetail(id){
   currentDetailIndex = 0;
   renderDetailImage();
   document.getElementById('detailHeartBtn').innerHTML = favoriteIds.has(String(l.id)) ? ICON.heartFilled : ICON.heart;
-  document.getElementById('detailTitle').textContent = `${l.breed || ''} ${l.gender || ''}`;
-  document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm";
+  const isAnimalDetail = ANIMAL_CATS.includes(l.category);
+  document.getElementById('detailTitle').textContent = isAnimalDetail ? `${l.breed || ''} ${l.gender || ''}` : (l.product_name || '');
+  document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm" + (!isAnimalDetail && l.quantity ? ` (≈ ${fmtPrice(Math.round(l.price/l.quantity))} so'm/${UNIT_LABEL[l.unit]||''})` : '');
   document.getElementById('detailBadges').innerHTML = `<span class="vbadge">${ICON.phone} Telefon tasdiqlangan</span>`;
-  document.getElementById('detailSpecs').innerHTML = `
+  document.getElementById('detailSpecs').innerHTML = isAnimalDetail ? `
     <div class="spec"><span class="k">Zot</span><span class="v">${l.breed || ''}</span></div>
     <div class="spec"><span class="k">Jinsi</span><span class="v">${l.gender || ''}</span></div>
     <div class="spec"><span class="k">Yoshi</span><span class="v">${l.age_text || ''}</span></div>
@@ -1179,6 +1264,9 @@ async function openDetail(id){
     <div class="spec"><span class="k">Rangi</span><span class="v">${l.color || ''}</span></div>
     <div class="spec"><span class="k">Holati</span><span class="v">${HEALTH_LABEL[l.health_status] || ''}</span></div>
     <div class="spec"><span class="k">Maqsadi</span><span class="v">${PURPOSE_LABEL[l.purpose] || ''}</span></div>
+    <div class="spec"><span class="k">Hudud</span><span class="v">${l.region || ''}</span></div>` : `
+    <div class="spec"><span class="k">Mahsulot</span><span class="v">${l.product_name || ''}</span></div>
+    <div class="spec"><span class="k">Miqdori</span><span class="v">${l.quantity || '—'} ${UNIT_LABEL[l.unit] || l.unit || ''}</span></div>
     <div class="spec"><span class="k">Hudud</span><span class="v">${l.region || ''}</span></div>`;
   const sellerName = l.sellerProfile?.account_type === 'ferma' ? (l.sellerProfile?.farm_name || l.sellerProfile?.full_name || 'Sotuvchi') : (l.sellerProfile?.full_name || 'Sotuvchi');
   const farmBadge = l.sellerProfile?.account_type === 'ferma' ? ` <span style="font-size:10px; background:var(--green-soft); color:var(--green-deep); padding:2px 8px; border-radius:10px; font-weight:800;">FERMA</span>` : '';
@@ -1223,14 +1311,24 @@ async function editListing(id){
 
   document.querySelectorAll('.type-card').forEach(t => t.classList.toggle('sel', t.dataset.cat === it.category));
   document.getElementById('selectedCategory').value = it.category;
-  updateBreedGenderSuggestions(it.category);
-  document.getElementById('breedInput').value = it.breed || '';
-  document.getElementById('genderInput').value = it.gender || '';
-  document.getElementById('ageInput').value = it.age_text || '';
-  document.getElementById('weightInput').value = it.weight_kg || '';
-  document.getElementById('colorInput').value = it.color || '';
-  document.querySelectorAll('#healthPills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.health_status));
-  document.querySelectorAll('#purposePills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.purpose));
+  const isAnimalEdit = ANIMAL_CATS.includes(it.category);
+  document.getElementById('animalFieldsGroup').style.display = isAnimalEdit ? 'block' : 'none';
+  document.getElementById('productFieldsGroup').style.display = isAnimalEdit ? 'none' : 'block';
+  if(isAnimalEdit){
+    updateBreedGenderSuggestions(it.category);
+    document.getElementById('breedInput').value = it.breed || '';
+    document.getElementById('genderInput').value = it.gender || '';
+    document.getElementById('ageInput').value = it.age_text || '';
+    document.getElementById('weightInput').value = it.weight_kg || '';
+    document.getElementById('colorInput').value = it.color || '';
+    document.querySelectorAll('#healthPills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.health_status));
+    document.querySelectorAll('#purposePills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === it.purpose));
+  } else {
+    updateProductSuggestions(it.category);
+    document.getElementById('productNameInput').value = it.product_name || '';
+    document.getElementById('quantityInput').value = it.quantity || '';
+    document.getElementById('unitInput').value = it.unit || 'kg';
+  }
   document.getElementById('priceInput').value = it.price;
   document.getElementById('regionInput').value = it.region || '';
   document.getElementById('districtInput').value = it.district || '';
@@ -1252,6 +1350,11 @@ function startAddFlow(){
   document.getElementById('weightInput').value = '';
   document.getElementById('colorInput').selectedIndex = 0;
   document.getElementById('priceInput').value = '';
+  document.getElementById('productNameInput').value = '';
+  document.getElementById('quantityInput').value = '';
+  document.getElementById('unitInput').selectedIndex = 0;
+  document.getElementById('animalFieldsGroup').style.display = 'block';
+  document.getElementById('productFieldsGroup').style.display = 'none';
   document.querySelectorAll('.type-card').forEach((t,i)=>t.classList.toggle('sel', i===0));
   document.getElementById('selectedCategory').value = 'qoramol';
   updateBreedGenderSuggestions('qoramol');
@@ -1266,15 +1369,25 @@ function renderStep4Preview(){
   if(selectedFiles.length){
     thumb.style.backgroundImage = `url('${URL.createObjectURL(selectedFiles[0])}')`;
   }
-  const breed = document.getElementById('breedInput').value;
-  const gender = document.getElementById('genderInput').value;
-  const age = document.getElementById('ageInput').value;
-  const weight = document.getElementById('weightInput').value;
+  const cat = document.getElementById('selectedCategory').value;
+  const isAnimal = ANIMAL_CATS.includes(cat);
   const price = document.getElementById('priceInput').value;
   const region = document.getElementById('regionInput').value;
-  document.getElementById('previewTitle').textContent = `${breed} ${gender}`;
+  if(isAnimal){
+    const breed = document.getElementById('breedInput').value;
+    const gender = document.getElementById('genderInput').value;
+    const age = document.getElementById('ageInput').value;
+    const weight = document.getElementById('weightInput').value;
+    document.getElementById('previewTitle').textContent = `${breed} ${gender}`;
+    document.getElementById('previewMeta2').innerHTML = `<span>~${weight} kg</span><span>${age}</span><span>${ICON.mapPin} ${region}</span>`;
+  } else {
+    const productName = document.getElementById('productNameInput').value;
+    const quantity = document.getElementById('quantityInput').value;
+    const unit = document.getElementById('unitInput').value;
+    document.getElementById('previewTitle').textContent = productName;
+    document.getElementById('previewMeta2').innerHTML = `<span>${quantity} ${UNIT_LABEL[unit]||unit}</span><span>${ICON.mapPin} ${region}</span>`;
+  }
   document.getElementById('previewPrice').textContent = `${price} so'm`;
-  document.getElementById('previewMeta2').innerHTML = `<span>~${weight} kg</span><span>${age}</span><span>${ICON.mapPin} ${region}</span>`;
 }
 
 async function publishListing(){
@@ -1282,35 +1395,50 @@ async function publishListing(){
   const { data: { user } } = await sb.auth.getUser();
   if(!user){ alert('Avval tizimga kiring.'); showScreen('auth'); return; }
 
-  const weightVal = parseFloat(document.getElementById('weightInput').value);
+  const cat = document.getElementById('selectedCategory').value;
+  const isAnimal = ANIMAL_CATS.includes(cat);
   const priceVal = parseInt(document.getElementById('priceInput').value.replace(/\D/g,''));
-  const ageVal = document.getElementById('ageInput').value.trim();
 
-  if(!weightVal || weightVal <= 0){ alert("Iltimos, vaznni kiriting."); goStep(2); return; }
-  if(!ageVal){ alert("Iltimos, yoshini kiriting."); goStep(2); return; }
-  if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
-  if(!editingListingId && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
-
-  btn.disabled = true;
-  btn.textContent = editingListingId ? 'Yangilanmoqda...' : 'Joylanmoqda...';
-
-  const payload = {
+  let payload = {
     seller_id: user.id,
-    category: document.getElementById('selectedCategory').value,
-    breed: document.getElementById('breedInput').value,
-    gender: document.getElementById('genderInput').value,
-    age_text: ageVal,
-    weight_kg: weightVal,
-    weight_source: 'seller',
-    color: document.getElementById('colorInput').value,
-    health_status: selectedPillValue('healthPills'),
-    purpose: selectedPillValue('purposePills'),
+    category: cat,
     price: priceVal,
     region: document.getElementById('regionInput').value,
     district: document.getElementById('districtInput').value,
     lat: listingLat,
     lng: listingLng,
   };
+
+  if(isAnimal){
+    const weightVal = parseFloat(document.getElementById('weightInput').value);
+    const ageVal = document.getElementById('ageInput').value.trim();
+    if(!weightVal || weightVal <= 0){ alert("Iltimos, vaznni kiriting."); goStep(2); return; }
+    if(!ageVal){ alert("Iltimos, yoshini kiriting."); goStep(2); return; }
+    if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
+    if(!editingListingId && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
+    payload.breed = document.getElementById('breedInput').value;
+    payload.gender = document.getElementById('genderInput').value;
+    payload.age_text = ageVal;
+    payload.weight_kg = weightVal;
+    payload.weight_source = 'seller';
+    payload.color = document.getElementById('colorInput').value;
+    payload.health_status = selectedPillValue('healthPills');
+    payload.purpose = selectedPillValue('purposePills');
+  } else {
+    const productName = document.getElementById('productNameInput').value.trim();
+    const quantityVal = parseFloat(document.getElementById('quantityInput').value);
+    const unitVal = document.getElementById('unitInput').value;
+    if(!productName){ alert("Iltimos, mahsulot nomini kiriting."); goStep(2); return; }
+    if(!quantityVal || quantityVal <= 0){ alert("Iltimos, miqdorini kiriting."); goStep(2); return; }
+    if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
+    if(!editingListingId && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
+    payload.product_name = productName;
+    payload.quantity = quantityVal;
+    payload.unit = unitVal;
+  }
+
+  btn.disabled = true;
+  btn.textContent = editingListingId ? 'Yangilanmoqda...' : 'Joylanmoqda...';
 
   let data, error;
   if(editingListingId){
@@ -1337,18 +1465,7 @@ async function publishListing(){
     return;
   }
 
-  document.querySelector('#screen-receipt .rid').textContent = `№ ${data.id.slice(0,8)} · ${new Date(data.created_at).toLocaleDateString('uz-UZ')}`;
-  const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
-  lines[0].textContent = CATEGORIES.find(c=>c.id===payload.category)?.name || payload.category;
-  lines[1].textContent = payload.breed;
-  lines[2].textContent = `${payload.gender} / ${payload.age_text}`;
-  lines[3].textContent = `~${payload.weight_kg} kg`;
-  lines[4].textContent = `${fmtPrice(payload.price)} so'm`;
-  lines[5].textContent = payload.region;
-  lines[6].textContent = data.status === 'sold' ? 'Yopilgan' : '30 kun';
-  document.querySelector('#screen-receipt .status-pill').innerHTML = data.status === 'sold'
-    ? `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#C1443B;display:inline-block;"></span> SOTILGAN`
-    : `<span class="dot" style="width:7px;height:7px;border-radius:50%;background:#3E9A5F;display:inline-block;"></span> E'LON FAOL`;
+  fillReceipt(data);
   receiptReturnScreen = 'mylistings';
 
   showScreen('receipt');
@@ -1356,12 +1473,19 @@ async function publishListing(){
 
 let receiptReturnScreen = 'mylistings';
 function fillReceipt(l){
+  const isAnimal = ANIMAL_CATS.includes(l.category);
   document.querySelector('#screen-receipt .rid').textContent = `№ ${String(l.id).slice(0,8)} · ${new Date(l.created_at).toLocaleDateString('uz-UZ')}`;
   const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
   lines[0].textContent = CATEGORIES.find(c=>c.id===l.category)?.name || l.category;
-  lines[1].textContent = l.breed || '';
-  lines[2].textContent = `${l.gender || ''} / ${l.age_text || ''}`;
-  lines[3].textContent = `~${l.weight_kg || '—'} kg`;
+  if(isAnimal){
+    lines[1].textContent = l.breed || '';
+    lines[2].textContent = `${l.gender || ''} / ${l.age_text || ''}`;
+    lines[3].textContent = `~${l.weight_kg || '—'} kg`;
+  } else {
+    lines[1].textContent = l.product_name || '';
+    lines[2].textContent = '—';
+    lines[3].textContent = `${l.quantity || '—'} ${UNIT_LABEL[l.unit] || l.unit || ''}`;
+  }
   lines[4].textContent = `${fmtPrice(l.price)} so'm`;
   lines[5].textContent = l.region || '';
   lines[6].textContent = l.status === 'sold' ? 'Yopilgan' : '30 kun';
