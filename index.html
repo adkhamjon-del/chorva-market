@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#184A2E">
 <title>Chorva Market — V1 Preview</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -668,6 +670,8 @@
       <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="saveProfile()">Saqlash</button>
       <div id="profileMsg" style="font-size:12px; color:var(--green-deep); margin-top:8px;"></div>
       <button class="btn btn-outline" style="width:100%; margin-top:20px;" onclick="showScreen('mylistings')">Mening e'lonlarim</button>
+      <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="enablePushNotifications()" id="pushBtn">🔔 Bildirishnomalarni yoqish</button>
+      <div id="pushStatus" style="font-size:11.5px; color:var(--sage); margin-top:6px; text-align:center;"></div>
       <button class="btn btn-outline" style="width:100%; margin-top:10px; color:var(--alert);" onclick="signOutUser()">Chiqish</button>
     </div>
   </section>
@@ -714,6 +718,62 @@
 const SUPABASE_URL = 'https://ujleiylegjkcqtuppwmj.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_mVeDHWdvWovZQfDyT0eE_Q_crDKdzLZ';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const VAPID_PUBLIC_KEY = 'BAz_uy-tj3vVJK6I0mgZcePSs7iwTc1FdEtd5p-x36MVgy-ObXyWZrSKRuJzNIVHwF2Bs4WkKwMCEMHEO5ICT_8';
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+
+async function enablePushNotifications(){
+  const status = document.getElementById('pushStatus');
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    status.textContent = "Bu qurilma/brauzer push bildirishnomani qo'llab-quvvatlamaydi. iPhone'da avval saytni 'Bosh ekranga qo'shish' orqali o'rnating.";
+    return;
+  }
+  try{
+    const permission = await Notification.requestPermission();
+    if(permission !== 'granted'){
+      status.textContent = "Ruxsat berilmadi.";
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const { data: { user } } = await sb.auth.getUser();
+    if(!user) return;
+    const raw = sub.toJSON();
+    await sb.from('push_subscriptions').upsert({
+      user_id: user.id,
+      endpoint: raw.endpoint,
+      p256dh: raw.keys.p256dh,
+      auth: raw.keys.auth
+    }, { onConflict: 'endpoint' });
+    status.textContent = "Bildirishnomalar yoqildi ✓";
+    status.style.color = 'var(--green-deep)';
+  } catch(err){
+    status.textContent = 'Xato: ' + err.message;
+  }
+}
+
+async function sendPushNotification(userId, title, body, url){
+  try{
+    await sb.functions.invoke('send-push', { body: { user_id: userId, title, body, url: url || '/' } });
+  } catch(e){ /* jim yutamiz — push ixtiyoriy funksiya */ }
+}
+
 
 async function emailAuth(){
   const email = document.getElementById('authEmail').value.trim();
@@ -1629,6 +1689,9 @@ async function sendThreadMessage(){
   if(error){ alert('Xato: ' + error.message); return; }
   input.value = '';
   await renderThreadMessages(user.id);
+  if(threadOtherId){
+    sendPushNotification(threadOtherId, 'Yangi xabar — Chorva Market', body.slice(0,100), '/');
+  }
 }
 
 let currentUserProfile = null;
