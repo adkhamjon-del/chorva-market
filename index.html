@@ -604,6 +604,16 @@
     <div style="margin-top:12px;" id="myListFeed"></div>
   </section>
 
+  <!-- ============ ADMIN PANEL ============ -->
+  <section class="screen" id="screen-admin">
+    <div class="subheader"><button class="iconbtn" onclick="showScreen('profile')">←</button><div style="font-weight:800; font-size:13px;">Admin panel</div><div style="width:36px;"></div></div>
+    <div class="content">
+      <div id="adminStats" style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:18px;"></div>
+      <div style="font-family:'Fraunces',serif; font-weight:600; font-size:15px; margin-bottom:10px;">Ko'rib chiqilmagan shikoyatlar</div>
+      <div id="adminReports"></div>
+    </div>
+  </section>
+
   <!-- ============ MAP ============ -->
   <section class="screen" id="screen-map">
     <div class="subheader">
@@ -670,6 +680,7 @@
       <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="saveProfile()">Saqlash</button>
       <div id="profileMsg" style="font-size:12px; color:var(--green-deep); margin-top:8px;"></div>
       <button class="btn btn-outline" style="width:100%; margin-top:20px;" onclick="showScreen('mylistings')">Mening e'lonlarim</button>
+      <button class="btn btn-outline" style="width:100%; margin-top:10px; display:none;" id="adminPanelBtn" onclick="showScreen('admin')">🛡️ Admin panel</button>
       <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="enablePushNotifications()" id="pushBtn">🔔 Bildirishnomalarni yoqish</button>
       <div id="pushStatus" style="font-size:11.5px; color:var(--sage); margin-top:6px; text-align:center;"></div>
       <button class="btn btn-outline" style="width:100%; margin-top:10px; color:var(--alert);" onclick="signOutUser()">Chiqish</button>
@@ -677,6 +688,30 @@
   </section>
 
   <!-- ============ PROFILE COMPLETION (majburiy, birinchi kirishda) ============ -->
+  <!-- ============ NIZOM (qoidalar bilan tanishtirish) ============ -->
+  <section class="screen" id="screen-rules">
+    <div class="content" style="padding-top:40px;">
+      <div style="text-align:center; margin-bottom:20px;">
+        <div style="font-family:'Fraunces',serif; font-weight:600; font-size:20px;">Chorva Market qoidalari</div>
+        <div style="font-size:13px; color:var(--sage); margin-top:6px;">Davom etishdan oldin o'qib chiqing</div>
+      </div>
+      <div style="background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:16px; font-size:13px; line-height:1.7; color:var(--ink); max-height:340px; overflow-y:auto; margin-bottom:16px;">
+        <b>1. Ishonchlilik.</b> E'londa faqat haqiqiy, o'zingizga tegishli mol/mahsulot rasmini yuklang. Boshqa odam yoki mol egasiga tegishli bo'lmagan rasm yuklash — hisobingiz butunlay bloklanishiga sabab bo'ladi.<br><br>
+        <b>2. Aloqa.</b> Telefon raqamingiz xaridorlarga ochiladi. Uni faqat shu maqsadda bering.<br><br>
+        <b>3. Narx.</b> Ko'rsatilgan narx yakuniy emas — savdolashish sotuvchi va xaridor o'rtasida.<br><br>
+        <b>4. Shikoyat.</b> Noto'g'ri/soxta e'lonlarni "Shikoyat qilish" orqali bildiring — moderatsiya ko'rib chiqadi.<br><br>
+        <b>5. Javobgarlik.</b> Chorva Market — sotuvchi va xaridorni bog'lovchi platforma, savdoning o'zi uchun javobgar emas.<br><br>
+        <b>6. Qoidabuzarlik.</b> Qoidalarni buzgan hisoblar ogohlantirishsiz o'chirilishi mumkin.
+      </div>
+      <label style="display:flex; align-items:flex-start; gap:10px; font-size:12.5px; color:var(--sage); margin-bottom:16px;">
+        <input type="checkbox" id="rulesAgreeCheckbox" style="margin-top:2px;">
+        Men Chorva Market qoidalarini o'qidim va roziman
+      </label>
+      <button class="btn btn-primary" style="width:100%" onclick="acceptRules()">Davom etish</button>
+      <div id="rulesMsg" style="font-size:12px; color:var(--alert); margin-top:8px; text-align:center;"></div>
+    </div>
+  </section>
+
   <section class="screen" id="screen-complete-profile">
     <div class="content" style="padding-top:50px;">
       <div style="text-align:center; margin-bottom:22px;">
@@ -916,6 +951,7 @@ function cardHTML(l){
     <div class="thumb" style="${thumbStyle}">
       ${thumbInner}
       <div class="badge">${ICON.phone} Telefon tasdiqlangan</div>
+      ${l.listing_code ? `<div style="position:absolute; top:9px; right:9px; background:rgba(0,0,0,.55); color:#fff; font-family:'IBM Plex Mono',monospace; font-size:10px; padding:3px 8px; border-radius:10px;">${l.listing_code}</div>` : ''}
     </div>
     <div class="info">
       <div class="title">${title}</div>
@@ -1316,7 +1352,7 @@ async function openDetail(id){
   const isAnimalDetail = ANIMAL_CATS.includes(l.category);
   document.getElementById('detailTitle').textContent = isAnimalDetail ? `${l.breed || ''} ${l.gender || ''}` : (l.product_name || '');
   document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm" + (!isAnimalDetail && l.quantity ? ` (≈ ${fmtPrice(Math.round(l.price/l.quantity))} so'm/${UNIT_LABEL[l.unit]||''})` : '');
-  document.getElementById('detailBadges').innerHTML = `<span class="vbadge">${ICON.phone} Telefon tasdiqlangan</span>`;
+  document.getElementById('detailBadges').innerHTML = `<span class="vbadge">${ICON.phone} Telefon tasdiqlangan</span>` + (l.listing_code ? `<span class="vbadge mono">${l.listing_code}</span>` : '');
   document.getElementById('detailSpecs').innerHTML = isAnimalDetail ? `
     <div class="spec"><span class="k">Zot</span><span class="v">${l.breed || ''}</span></div>
     <div class="spec"><span class="k">Jinsi</span><span class="v">${l.gender || ''}</span></div>
@@ -1354,6 +1390,7 @@ function showScreen(name){
   if(name==='profile') loadProfileScreen();
   if(name==='messages') loadConversations();
   if(name==='savatcha') loadSavatcha();
+  if(name==='admin') loadAdminPanel();
 }
 function tabTo(name){ showScreen(name); }
 
@@ -1535,7 +1572,7 @@ async function publishListing(){
 let receiptReturnScreen = 'mylistings';
 function fillReceipt(l){
   const isAnimal = ANIMAL_CATS.includes(l.category);
-  document.querySelector('#screen-receipt .rid').textContent = `№ ${String(l.id).slice(0,8)} · ${new Date(l.created_at).toLocaleDateString('uz-UZ')}`;
+  document.querySelector('#screen-receipt .rid').textContent = `№ ${l.listing_code || String(l.id).slice(0,8)} · ${new Date(l.created_at).toLocaleDateString('uz-UZ')}`;
   const lines = document.querySelectorAll('#screen-receipt .receipt-line .v');
   lines[0].textContent = CATEGORIES.find(c=>c.id===l.category)?.name || l.category;
   if(isAnimal){
@@ -1572,7 +1609,11 @@ async function initAfterLogin(){
   const { data: { user } } = await sb.auth.getUser();
   currentUser = user;
   const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
-  if(!profile || !profile.full_name || !profile.phone){
+  if(!profile || !profile.rules_accepted){
+    showScreen('rules');
+    return;
+  }
+  if(!profile.full_name || !profile.phone){
     showScreen('complete-profile');
     return;
   }
@@ -1581,6 +1622,79 @@ async function initAfterLogin(){
   await loadFavorites();
   await loadAnnouncement();
   showScreen('home');
+}
+
+async function acceptRules(){
+  const msg = document.getElementById('rulesMsg');
+  if(!document.getElementById('rulesAgreeCheckbox').checked){
+    msg.textContent = "Davom etish uchun qoidalarga rozilik bildiring.";
+    return;
+  }
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('profiles').update({ rules_accepted: true }).eq('id', user.id);
+  if(error){ msg.textContent = 'Xato: ' + error.message; return; }
+  showScreen('complete-profile');
+}
+
+async function loadAdminPanel(){
+  const { data: profile } = await sb.from('profiles').select('is_admin').eq('id', currentUser?.id).single();
+  if(!profile?.is_admin){
+    document.getElementById('adminStats').innerHTML = '';
+    document.getElementById('adminReports').innerHTML = `<div class="placeholder-screen"><div class="t">Ruxsat yo'q</div></div>`;
+    return;
+  }
+
+  const { data: counters } = await sb.from('category_counters').select('*');
+  const { count: userCount } = await sb.from('profiles').select('*', { count: 'exact', head: true });
+  const { count: activeCount } = await sb.from('listings').select('*', { count: 'exact', head: true }).eq('status','active');
+  document.getElementById('adminStats').innerHTML = `
+    <div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600;">${userCount||0}</div>
+      <div style="font-size:10px; color:var(--sage); font-weight:700;">FOYDALANUVCHI</div>
+    </div>
+    <div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600;">${activeCount||0}</div>
+      <div style="font-size:10px; color:var(--sage); font-weight:700;">FAOL E'LON</div>
+    </div>
+    <div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px;">
+      ${(counters||[]).map(c=>`<div style="font-size:10.5px; display:flex; justify-content:space-between;"><span>${c.category}</span><b>${c.counter}</b></div>`).join('')}
+    </div>`;
+
+  const { data: reports } = await sb.from('reports').select('*, listings(breed, gender, product_name, listing_code, seller_id)').eq('status','pending').order('created_at', {ascending:false});
+  const box = document.getElementById('adminReports');
+  if(!reports || !reports.length){
+    box.innerHTML = `<div class="placeholder-screen"><div class="t">Hozircha shikoyat yo'q</div></div>`;
+    return;
+  }
+  box.innerHTML = reports.map(r => {
+    const l = r.listings;
+    const title = l ? (l.breed ? `${l.breed} ${l.gender||''}` : (l.product_name||'')) : "E'lon o'chirilgan";
+    return `<div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px;">
+      <div style="font-weight:800; font-size:13px;">${title} <span class="mono" style="font-size:10px; color:var(--sage);">${l?.listing_code||''}</span></div>
+      <div style="font-size:12px; color:var(--sage); margin:4px 0 8px;">Sabab: ${r.reason}</div>
+      <div style="display:flex; gap:8px;">
+        <button class="sold-btn" onclick="openDetail('${r.listing_id}')">Ko'rish</button>
+        <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="adminRemoveListing('${r.id}','${r.listing_id}','${l?.seller_id||''}')">O'chirish + ogohlantirish</button>
+        <button class="sold-btn" onclick="adminDismissReport('${r.id}')">Rad etish</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function adminDismissReport(reportId){
+  await sb.from('reports').update({ status: 'dismissed' }).eq('id', reportId);
+  loadAdminPanel();
+}
+
+async function adminRemoveListing(reportId, listingId, sellerId){
+  const reason = prompt("E'lon nima sababdan o'chirilyapti? (sotuvchiga shu matn yuboriladi)", "E'loningiz platforma qoidalariga mos kelmagani uchun olib tashlandi.");
+  if(reason === null) return;
+  await sb.from('listings').delete().eq('id', listingId);
+  await sb.from('reports').update({ status: 'reviewed' }).eq('id', reportId);
+  if(sellerId){
+    sendPushNotification(sellerId, 'Chorva Market — e\'lon olib tashlandi', reason, '/');
+  }
+  loadAdminPanel();
 }
 
 async function startConversation(){
@@ -1741,6 +1855,7 @@ async function loadProfileScreen(){
     document.getElementById('profileNameDisplay').textContent = profile.account_type === 'ferma' ? (profile.farm_name || profile.full_name || 'Foydalanuvchi') : (profile.full_name || 'Foydalanuvchi');
     document.getElementById('profileAvatar').textContent = (profile.full_name || '?').split(' ').map(w=>w[0]).join('').slice(0,2);
     document.getElementById('profileMetaDisplay').innerHTML = `${ICON.star} ${profile.rating || 0} · ${profile.listings_count || 0} e'lon`;
+    document.getElementById('adminPanelBtn').style.display = profile.is_admin ? 'block' : 'none';
   }
 }
 
