@@ -609,8 +609,16 @@
     <div class="subheader"><button class="iconbtn" onclick="showScreen('profile')">←</button><div style="font-weight:800; font-size:13px;">Admin panel</div><div style="width:36px;"></div></div>
     <div class="content">
       <div id="adminStats" style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:18px;"></div>
+
       <div style="font-family:'Fraunces',serif; font-weight:600; font-size:15px; margin-bottom:10px;">Ko'rib chiqilmagan shikoyatlar</div>
       <div id="adminReports"></div>
+
+      <div style="font-family:'Fraunces',serif; font-weight:600; font-size:15px; margin:22px 0 10px;">Barcha e'lonlar</div>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <input id="adminSearchInput" placeholder="Kod yoki nom bo'yicha qidirish..." style="flex:1; padding:11px 13px; border-radius:12px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+        <button onclick="loadAdminAllListings()" style="background:var(--green-deep); color:#fff; border:none; border-radius:12px; padding:0 16px; font-weight:800; font-size:13px;">Qidirish</button>
+      </div>
+      <div id="adminAllListings"></div>
     </div>
   </section>
 
@@ -1664,6 +1672,7 @@ async function loadAdminPanel(){
   const box = document.getElementById('adminReports');
   if(!reports || !reports.length){
     box.innerHTML = `<div class="placeholder-screen"><div class="t">Hozircha shikoyat yo'q</div></div>`;
+    loadAdminAllListings();
     return;
   }
   box.innerHTML = reports.map(r => {
@@ -1679,6 +1688,53 @@ async function loadAdminPanel(){
       </div>
     </div>`;
   }).join('');
+  loadAdminAllListings();
+}
+
+async function loadAdminAllListings(){
+  const box = document.getElementById('adminAllListings');
+  const q = document.getElementById('adminSearchInput').value.trim();
+  box.innerHTML = `<div class="placeholder-screen"><div class="t">Yuklanmoqda...</div></div>`;
+  let query = sb.from('listings').select('*').order('created_at', {ascending:false}).limit(50);
+  const { data: listings, error } = await query;
+  let filtered = listings || [];
+  if(q){
+    const qLower = q.toLowerCase();
+    filtered = filtered.filter(l =>
+      (l.listing_code||'').toLowerCase().includes(qLower) ||
+      (l.breed||'').toLowerCase().includes(qLower) ||
+      (l.product_name||'').toLowerCase().includes(qLower)
+    );
+  }
+  if(error || !filtered.length){
+    box.innerHTML = `<div class="placeholder-screen"><div class="t">E'lon topilmadi</div></div>`;
+    return;
+  }
+  box.innerHTML = filtered.map(l => {
+    const title = ANIMAL_CATS.includes(l.category) ? `${l.breed||''} ${l.gender||''}` : (l.product_name||'');
+    return `<div style="background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:800; font-size:13px;">${title} <span class="mono" style="font-size:10px; color:var(--sage);">${l.listing_code||''}</span></div>
+        <div style="font-size:11.5px; color:var(--sage);">${fmtPrice(l.price)} so'm · ${l.status==='active'?'FAOL':(l.status==='sold'?'SOTILGAN':'YASHIRIN')}</div>
+      </div>
+      <div style="display:flex; gap:6px; flex-shrink:0;">
+        <button class="sold-btn" onclick="openDetail('${l.id}')">Ko'rish</button>
+        <button class="sold-btn" style="color:var(--alert); border-color:var(--alert);" onclick="adminDeleteAnyListing('${l.id}','${l.seller_id}')">O'chirish</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function adminDeleteAnyListing(listingId, sellerId){
+  const reason = prompt("E'lonni o'chirish sababi (sotuvchiga yuboriladi, bo'sh qoldirsa xabar yuborilmaydi):", "");
+  if(reason === null) return;
+  const { error } = await sb.from('listings').delete().eq('id', listingId);
+  if(error){ alert('Xato: ' + error.message); return; }
+  if(reason.trim() && sellerId){
+    sendPushNotification(sellerId, 'Chorva Market — e\'lon olib tashlandi', reason.trim(), '/');
+  }
+  loadAdminAllListings();
+  loadAdminPanel();
 }
 
 async function adminDismissReport(reportId){
