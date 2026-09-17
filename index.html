@@ -388,12 +388,18 @@
   <section class="screen" id="screen-add1">
     <div class="subheader">
       <button class="iconbtn" onclick="showScreen('home')">✕</button>
-      <div style="font-weight:800; font-size:13px;">Mol sotish</div>
+      <div style="font-weight:800; font-size:13px;" id="addFlowTitle">Mol sotish</div>
       <div style="width:36px;"></div>
     </div>
     <div class="progress"><div class="seg done"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div></div>
+
+    <div class="pill-select" id="listingTypePills" style="padding:12px 16px 4px;">
+      <div class="pill-opt sel" data-val="sotuv" onclick="selectListingType(this)" style="flex:1; justify-content:center;">Sotaman</div>
+      <div class="pill-opt" data-val="xarid" onclick="selectListingType(this)" style="flex:1; justify-content:center;">Kerak</div>
+    </div>
+
     <div class="step-label">1-qadam</div>
-    <div class="step-title">Hayvon turini tanlang</div>
+    <div class="step-title">Hayvon/mahsulot turini tanlang</div>
     <div class="type-grid" id="typeGrid"></div>
     <input type="hidden" id="selectedCategory" value="qoramol">
     <div class="step-footer">
@@ -481,7 +487,7 @@
     <div class="step-label">3-qadam</div>
     <div class="step-title">Narx va hudud</div>
 
-    <div class="field"><label>Sizning narxingiz (so'm)</label><input class="mono" id="priceInput" value="25 000 000"></div>
+    <div class="field"><label id="priceLabel">Sizning narxingiz (so'm)</label><input class="mono" id="priceInput" value="25 000 000"></div>
     <div class="row2">
       <div class="field"><label>Viloyat</label><input id="regionInput" list="regionsDatalist" placeholder="Viloyatni tanlang yoki yozing"></div>
       <div class="field"><label>Tuman / Shahar</label><input id="districtInput" placeholder="Masalan: Pastdarg'om tumani"></div>
@@ -954,6 +960,7 @@ function cardHTML(l){
   const reviews = l.sellerProfile?.rating_count || 0;
   const faved = favoriteIds.has(String(l.id));
   const catIcon = CATEGORIES.find(c=>c.id===l.category)?.icon || 'cow';
+  const isXarid = l.listing_type === 'xarid';
   const thumbStyle = img ? `background-image:url('${img}');` : `background:var(--line); display:flex; align-items:center; justify-content:center;`;
   const thumbInner = img ? '' : `<div style="font-size:34px; color:#B8AF98;">${ICON[catIcon]}</div>`;
   const isAnimal = ANIMAL_CATS.includes(l.category);
@@ -964,12 +971,12 @@ function cardHTML(l){
   return `<div class="card" onclick="openDetail('${l.id}')" style="cursor:pointer;">
     <div class="thumb" style="${thumbStyle}">
       ${thumbInner}
-      <div class="badge">${ICON.phone} Telefon tasdiqlangan</div>
+      ${isXarid ? `<div class="badge" style="background:var(--apricot);">🔍 KERAK</div>` : `<div class="badge">${ICON.phone} Telefon tasdiqlangan</div>`}
       ${l.listing_code ? `<div style="position:absolute; top:9px; right:9px; background:rgba(0,0,0,.55); color:#fff; font-family:'IBM Plex Mono',monospace; font-size:10px; padding:3px 8px; border-radius:10px;">${l.listing_code}</div>` : ''}
     </div>
     <div class="info">
       <div class="title">${title}</div>
-      <div class="price mono">${fmtPrice(l.price)} so'm</div>
+      <div class="price mono">${fmtPrice(l.price)} so'm${isXarid ? 'gacha' : ''}</div>
       <div class="meta">${metaLine}</div>
       <div class="meta">${l.region || ''}</div>
       <div class="bottom-row">
@@ -1370,7 +1377,7 @@ async function openDetail(id){
   document.getElementById('detailHeartBtn').innerHTML = favoriteIds.has(String(l.id)) ? ICON.heartFilled : ICON.heart;
   const isAnimalDetail = ANIMAL_CATS.includes(l.category);
   document.getElementById('detailTitle').textContent = isAnimalDetail ? `${l.breed || ''} ${l.gender || ''}` : (l.product_name || '');
-  document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm" + (!isAnimalDetail && l.quantity ? ` (≈ ${fmtPrice(Math.round(l.price/l.quantity))} so'm/${UNIT_LABEL[l.unit]||''})` : '');
+  document.getElementById('detailPrice').textContent = fmtPrice(l.price) + " so'm" + (l.listing_type === 'xarid' ? 'gacha' : '') + (!isAnimalDetail && l.quantity ? ` (≈ ${fmtPrice(Math.round(l.price/l.quantity))} so'm/${UNIT_LABEL[l.unit]||''})` : '');
   document.getElementById('detailBadges').innerHTML = `<span class="vbadge">${ICON.phone} Telefon tasdiqlangan</span>` + (l.listing_code ? `<span class="vbadge mono">${l.listing_code}</span>` : '');
   document.getElementById('detailSpecs').innerHTML = isAnimalDetail ? `
     <div class="spec"><span class="k">Zot</span><span class="v">${l.breed || ''}</span></div>
@@ -1414,6 +1421,16 @@ function showScreen(name){
 function tabTo(name){ showScreen(name); }
 
 let editingListingId = null;
+let listingType = 'sotuv';
+
+function selectListingType(el){
+  Array.from(el.parentElement.children).forEach(p=>p.classList.remove('sel'));
+  el.classList.add('sel');
+  listingType = el.dataset.val;
+  const isXarid = listingType === 'xarid';
+  document.getElementById('addFlowTitle').textContent = isXarid ? "Kerak e'loni" : 'Mol sotish';
+  document.getElementById('priceLabel').textContent = isXarid ? "Necha pulgacha to'layman (so'm)" : "Sizning narxingiz (so'm)";
+}
 
 async function editListing(id){
   const { data: it, error } = await sb.from('listings').select('*, listing_images(url, sort_order)').eq('id', id).single();
@@ -1428,6 +1445,10 @@ async function editListing(id){
 
   document.querySelectorAll('.type-card').forEach(t => t.classList.toggle('sel', t.dataset.cat === it.category));
   document.getElementById('selectedCategory').value = it.category;
+  listingType = it.listing_type || 'sotuv';
+  document.querySelectorAll('#listingTypePills .pill-opt').forEach(p => p.classList.toggle('sel', p.dataset.val === listingType));
+  document.getElementById('addFlowTitle').textContent = listingType === 'xarid' ? "Kerak e'loni" : 'Mol sotish';
+  document.getElementById('priceLabel').textContent = listingType === 'xarid' ? "Necha pulgacha to'layman (so'm)" : "Sizning narxingiz (so'm)";
   const isAnimalEdit = ANIMAL_CATS.includes(it.category);
   document.getElementById('animalFieldsGroup').style.display = isAnimalEdit ? 'block' : 'none';
   document.getElementById('productFieldsGroup').style.display = isAnimalEdit ? 'none' : 'block';
@@ -1455,6 +1476,10 @@ async function editListing(id){
 
 function startAddFlow(){
   editingListingId = null;
+  listingType = 'sotuv';
+  document.querySelectorAll('#listingTypePills .pill-opt').forEach((p,i)=>p.classList.toggle('sel', i===0));
+  document.getElementById('addFlowTitle').textContent = 'Mol sotish';
+  document.getElementById('priceLabel').textContent = "Sizning narxingiz (so'm)";
   selectedFiles = [];
   listingLat = null; listingLng = null;
   const locStatus = document.getElementById('locCaptureStatus');
@@ -1519,6 +1544,7 @@ async function publishListing(){
   let payload = {
     seller_id: user.id,
     category: cat,
+    listing_type: listingType,
     price: priceVal,
     region: document.getElementById('regionInput').value,
     district: document.getElementById('districtInput').value,
@@ -1526,13 +1552,15 @@ async function publishListing(){
     lng: listingLng,
   };
 
+  const photoRequired = !editingListingId && listingType === 'sotuv';
+
   if(isAnimal){
     const weightVal = parseFloat(document.getElementById('weightInput').value);
     const ageVal = document.getElementById('ageInput').value.trim();
     if(!weightVal || weightVal <= 0){ alert("Iltimos, vaznni kiriting."); goStep(2); return; }
     if(!ageVal){ alert("Iltimos, yoshini kiriting."); goStep(2); return; }
     if(!priceVal || priceVal <= 0){ alert("Iltimos, narxni kiriting."); goStep(3); return; }
-    if(!editingListingId && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
+    if(photoRequired && selectedFiles.length < 1){ alert("Iltimos, kamida bitta rasm qo'shing."); goStep(2); return; }
     payload.breed = document.getElementById('breedInput').value;
     payload.gender = document.getElementById('genderInput').value;
     payload.age_text = ageVal;
@@ -1582,6 +1610,8 @@ async function publishListing(){
     return;
   }
 
+  await matchNewListing(data);
+
   fillReceipt(data);
   receiptReturnScreen = 'mylistings';
 
@@ -1623,6 +1653,30 @@ function toggleFarmNameField(prefix){
   const val = document.querySelector(`#${prefix}AccountTypePills .pill-opt.sel`)?.dataset.val;
   document.getElementById(`${prefix}FarmNameField`).style.display = val === 'ferma' ? 'block' : 'none';
 }
+
+async function matchNewListing(newListing){
+  const oppositeType = newListing.listing_type === 'xarid' ? 'sotuv' : 'xarid';
+  const { data: matches } = await sb
+    .from('listings')
+    .select('id, seller_id')
+    .eq('category', newListing.category)
+    .eq('listing_type', oppositeType)
+    .eq('status', 'active')
+    .neq('seller_id', newListing.seller_id)
+    .limit(50);
+
+  if(!matches || !matches.length) return;
+
+  if(newListing.listing_type === 'xarid'){
+    alert(`Hozircha ${matches.length} ta mos e'lon bor! "Qidirish"da ko'rishingiz mumkin.`);
+  } else {
+    const title = ANIMAL_CATS.includes(newListing.category) ? `${newListing.breed||''} ${newListing.gender||''}` : (newListing.product_name||'');
+    for(const m of matches){
+      sendPushNotification(m.seller_id, "Sizga mos e'lon topildi — Chorva Market", title, '/');
+    }
+  }
+}
+
 
 async function initAfterLogin(){
   const { data: { user } } = await sb.auth.getUser();
