@@ -100,7 +100,12 @@ function sbHeaders(extra) {
   if (SB_KEY.startsWith("eyJ")) h.Authorization = "Bearer " + SB_KEY;
   return Object.assign(h, extra || {});
 }
+function checkConfig() {
+  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(SB_URL)) throw new Error("SUPABASE_URL sozlanmagan yoki noto'g'ri");
+  if (!SB_KEY) throw new Error("SUPABASE_SECRET_KEY sozlanmagan");
+}
 async function rest(method, path, body, prefer) {
+  checkConfig();
   const r = await fetch(SB_URL + "/rest/v1/" + path, {
     method: method,
     headers: sbHeaders(prefer ? { Prefer: prefer } : {}),
@@ -387,20 +392,25 @@ async function onMessage(msg) {
   const text = (msg.text || "").trim();
 
   if (text.indexOf("/start") === 0) {
-    await clearSession(from.id);
+    await clearSession(from.id).catch(() => {});
     return send(chat_id, EM.cow + " CHORVA MARKET\n\nMolni bozorga olib bormang. Xaridoringizni toping.\n\nQuyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
   }
   if (text.indexOf("/cancel") === 0) {
-    await clearSession(from.id);
+    await clearSession(from.id).catch(() => {});
     return send(chat_id, "Bekor qilindi.", { reply_markup: MENU });
   }
 
-  const session = await getSession(from.id);
+  let session = null;
+  let dbDown = false;
+  try { session = await getSession(from.id); } catch (e) { dbDown = true; }
+  const dbMsg = () => send(chat_id, EM.warn + " Baza vaqtincha ishlamayapti. Birozdan keyin qayta urinib ko'ring.", { reply_markup: MENU });
   const action = menuAction(text);
   if (action) {
-    if (session) await clearSession(from.id);
+    if (session) await clearSession(from.id).catch(() => {});
+    if (dbDown && (action === "add" || action === "browse" || action === "mine")) return dbMsg();
     return runMenu(action, chat_id, from);
   }
+  if (dbDown) return dbMsg();
   if (!session) {
     return send(chat_id, "Quyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
   }
@@ -548,10 +558,31 @@ async function onCallback(cq) {
   return answer();
 }
 
+// ---------- Tekshiruv sahifasi (qiymatlarni ko'rsatmaydi) ----------
+async function diagnose() {
+  const out = { bot: "ishlayapti" };
+  out.telegram_token = TOKEN ? "bor" : "YO'Q";
+  out.webhook_secret = SECRET ? "bor" : "YO'Q";
+  out.supabase_url = !SB_URL ? "YO'Q"
+    : /^https:\/\/[A-Za-z0-9.-]+$/.test(SB_URL) ? "to'g'ri shaklda"
+    : "NOTO'G'RI: https://....supabase.co ko'rinishida bo'lishi kerak";
+  out.supabase_key = !SB_KEY ? "YO'Q"
+    : (SB_KEY.indexOf("sb_secret_") === 0 || SB_KEY.indexOf("eyJ") === 0) ? "bor"
+    : "NOTO'G'RI shaklda";
+  if (out.supabase_url === "to'g'ri shaklda" && out.supabase_key === "bor") {
+    const tables = ["bot_sessions", "bot_photos", "listings", "profiles"];
+    for (const t of tables) {
+      try { await rest("GET", t + "?select=*&limit=1"); out["jadval_" + t] = "ishlayapti"; }
+      catch (e) { out["jadval_" + t] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
+    }
+  }
+  return out;
+}
+
 // ---------- Kirish nuqtasi ----------
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
-    return res.status(200).send("Chorva Market bot ishlayapti");
+    return res.status(200).json(await diagnose());
   }
   if (req.headers["x-telegram-bot-api-secret-token"] !== SECRET) {
     return res.status(403).send("forbidden");
