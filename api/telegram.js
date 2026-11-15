@@ -146,6 +146,11 @@ async function findProfile(tid) {
   return rows && rows[0] ? rows[0] : null;
 }
 
+async function findProfileByPhone(phone) {
+  const rows = await rest("GET", "profiles?phone=eq." + encodeURIComponent(phone) + "&select=id,telegram_id,phone");
+  return rows && rows[0] ? rows[0] : null;
+}
+
 async function findAuthUserByEmail(email) {
   const want = email.toLowerCase();
   for (let page = 1; page <= 5; page++) {
@@ -164,9 +169,21 @@ async function ensureProfile(from, phone, verified) {
   const existing = await findProfile(from.id);
   if (existing) {
     if (phone && !existing.phone) {
-      await rest("PATCH", "profiles?id=eq." + existing.id, { phone: phone, phone_verified: verified }, "return=minimal");
+      try {
+        const other = await findProfileByPhone(phone);
+        if (!other) await rest("PATCH", "profiles?id=eq." + existing.id, { phone: phone, phone_verified: verified }, "return=minimal");
+      } catch (e) { console.error("Telefon yozilmadi:", e.message); }
     }
     return existing.id;
+  }
+  if (phone) {
+    // Shu raqamli akkaunt (masalan saytdagi) allaqachon bor bo'lsa, Telegram'ni o'sha akkauntga ulaymiz
+    const byPhone = await findProfileByPhone(phone);
+    if (byPhone) {
+      if (byPhone.telegram_id && String(byPhone.telegram_id) !== String(from.id)) throw new Error("phone_taken");
+      await rest("PATCH", "profiles?id=eq." + byPhone.id, { telegram_id: from.id, phone_verified: !!verified }, "return=minimal");
+      return byPhone.id;
+    }
   }
   const name = ((from.first_name || "") + " " + (from.last_name || "")).trim() || "Telegram foydalanuvchi";
   const email = "tg" + from.id + "@telegram.invalid";
@@ -372,6 +389,10 @@ async function publish(chat_id, from, d) {
     if (failed.length) text += "\n\n" + EM.warn + " " + failed.length + " ta rasm yuklanmadi. Saytdan qo'shishingiz mumkin.";
     return send(chat_id, text, { reply_markup: MENU });
   } catch (e) {
+    if (e && e.message === "phone_taken") {
+      await clearSession(tid).catch(() => {});
+      return send(chat_id, EM.warn + " Bu telefon raqam boshqa Telegram akkauntga ulangan. Yordam kerak bo'lsa, saytimiz orqali bog'laning.", { reply_markup: MENU });
+    }
     console.error("Joylashda xato:", e);
     await saveSession(tid, "confirm", d).catch(() => {});
     return send(chat_id, EM.warn + " Xatolik yuz berdi. Birozdan keyin \"Joylash\" tugmasini qayta bosing.", {
