@@ -146,6 +146,20 @@ async function findProfile(tid) {
   return rows && rows[0] ? rows[0] : null;
 }
 
+async function findAuthUserByEmail(email) {
+  const want = email.toLowerCase();
+  for (let page = 1; page <= 5; page++) {
+    const r = await fetch(SB_URL + "/auth/v1/admin/users?page=" + page + "&per_page=200", { method: "GET", headers: sbHeaders() });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => ({}));
+    const users = j.users || [];
+    const u = users.find((x) => String(x.email || "").toLowerCase() === want);
+    if (u) return u.id;
+    if (users.length < 200) return null;
+  }
+  return null;
+}
+
 async function ensureProfile(from, phone, verified) {
   const existing = await findProfile(from.id);
   if (existing) {
@@ -155,27 +169,44 @@ async function ensureProfile(from, phone, verified) {
     return existing.id;
   }
   const name = ((from.first_name || "") + " " + (from.last_name || "")).trim() || "Telegram foydalanuvchi";
+  const email = "tg" + from.id + "@telegram.invalid";
+  const fields = { telegram_id: from.id, full_name: name, phone: phone || null, phone_verified: !!verified, rules_accepted: true };
+
+  let uid = null;
+  let created = false;
   const r = await fetch(SB_URL + "/auth/v1/admin/users", {
     method: "POST",
     headers: sbHeaders(),
     body: JSON.stringify({
-      email: "tg" + from.id + "@telegram.invalid",
+      email: email,
       password: crypto.randomBytes(24).toString("hex"),
       email_confirm: true,
       user_metadata: { full_name: name, telegram_id: from.id, source: "telegram" },
     }),
   });
   const u = await r.json().catch(() => ({}));
-  if (!r.ok || !u.id) {
+  if (r.ok && u.id) {
+    uid = u.id;
+    created = true;
+  } else if (u && u.error_code === "email_exists") {
+    uid = await findAuthUserByEmail(email); // oldingi urinishdan qolgan akkaunt
+  }
+  if (!uid) {
     console.error("Akkaunt yaratilmadi:", r.status, JSON.stringify(u));
     throw new Error("auth " + r.status);
   }
-  const fields = { telegram_id: from.id, full_name: name, phone: phone || null, phone_verified: !!verified, rules_accepted: true };
-  const upd = await rest("PATCH", "profiles?id=eq." + u.id, fields, "return=representation");
-  if (!upd || !upd.length) {
-    await rest("POST", "profiles", Object.assign({ id: u.id }, fields), "return=minimal");
+  try {
+    const upd = await rest("PATCH", "profiles?id=eq." + uid, fields, "return=representation");
+    if (!upd || !upd.length) {
+      await rest("POST", "profiles", Object.assign({ id: uid }, fields), "return=minimal");
+    }
+  } catch (e) {
+    if (created) {
+      await fetch(SB_URL + "/auth/v1/admin/users/" + uid, { method: "DELETE", headers: sbHeaders() }).catch(() => {});
+    }
+    throw e;
   }
-  return u.id;
+  return uid;
 }
 
 async function uploadPhoto(file_id, listingId, i) {
@@ -570,10 +601,10 @@ async function diagnose() {
     : (SB_KEY.indexOf("sb_secret_") === 0 || SB_KEY.indexOf("eyJ") === 0) ? "bor"
     : "NOTO'G'RI shaklda";
   if (out.supabase_url === "to'g'ri shaklda" && out.supabase_key === "bor") {
-    const tables = ["bot_sessions", "bot_photos", "listings", "profiles"];
+    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id"];
     for (const t of tables) {
-      try { await rest("GET", t + "?select=*&limit=1"); out["jadval_" + t] = "ishlayapti"; }
-      catch (e) { out["jadval_" + t] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
+      try { await rest("GET", (t.indexOf("?") >= 0 ? t + "&limit=1" : t + "?select=*&limit=1")); out["jadval_" + t.replace("?select=", ".")] = "ishlayapti"; }
+      catch (e) { out["jadval_" + t.replace("?select=", ".")] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
     }
   }
   return out;
