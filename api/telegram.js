@@ -7,7 +7,12 @@ const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const SB_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
 const SB_KEY = (process.env.SUPABASE_SECRET_KEY || "").trim();
+const CHANNEL = (process.env.TELEGRAM_CHANNEL || "").trim();
 const SITE_URL = "https://chorva-market-olive.vercel.app";
+const VIDEO_REQUIRED_FOR_SALE = true; // sotuv e'lonida video majburiy (sotib olish e'lonida ixtiyoriy)
+const LIVE_VIDEO_ONLY = true;         // true: faqat jonli dumaloq video; false: oddiy video ham qabul qilinadi
+const MAX_VIDEO_SEC = 60;
+const REVEAL_LIMIT = 15;              // bir foydalanuvchi sutkada ko'pi bilan nechta sotuvchi raqamini ocha oladi
 const DAILY_LIMIT = 5;
 const MAX_PHOTOS = 6;
 
@@ -20,6 +25,7 @@ const EM = {
   check: E(0x2705), cross: E(0x274C), money: E(0x1F4B0), cart: E(0x1F6D2),
   camera: E(0x1F4F7), mobile: E(0x1F4F1), skip: E(0x23ED) + E(0xFE0F),
   down: E(0x1F447), party: E(0x1F389), warn: E(0x26A0) + E(0xFE0F), link: E(0x1F517),
+  eye: E(0x1F440), key: E(0x1F511), video: E(0x1F3A5), scale: E(0x2696) + E(0xFE0F), calendar: E(0x1F4C5), heart: E(0x1F49A), target: E(0x1F3AF),
 };
 
 const MENU = {
@@ -71,8 +77,8 @@ const UNITS = [["kg", "kg"], ["tonna", "tonna"], ["boglam", "bog'lam"], ["qop", 
 const LABELS = {};
 [].concat(HEALTH, PURPOSE, UNITS).forEach((p) => { LABELS[p[0]] = p[1]; });
 
-const ANIMAL_STEPS = ["breed", "gender", "age", "weight", "health", "purpose", "price", "region", "district", "photos", "phone", "confirm"];
-const PRODUCT_STEPS = ["product", "quantity", "unit", "price", "region", "district", "photos", "phone", "confirm"];
+const ANIMAL_STEPS = ["breed", "gender", "age", "weight", "health", "purpose", "price", "region", "district", "photos", "video", "phone", "confirm"];
+const PRODUCT_STEPS = ["product", "quantity", "unit", "price", "region", "district", "photos", "video", "phone", "confirm"];
 
 // ---------- Telegram ----------
 async function tg(method, body) {
@@ -104,6 +110,7 @@ function checkConfig() {
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(SB_URL)) throw new Error("SUPABASE_URL sozlanmagan yoki noto'g'ri");
   if (!SB_KEY) throw new Error("SUPABASE_SECRET_KEY sozlanmagan");
 }
+const redact = (x) => String(x).replace(/(\+|%2B)?998[\d\s-]{9,12}/g, "***");
 async function rest(method, path, body, prefer) {
   checkConfig();
   const r = await fetch(SB_URL + "/rest/v1/" + path, {
@@ -113,8 +120,8 @@ async function rest(method, path, body, prefer) {
   });
   const text = await r.text();
   if (!r.ok) {
-    console.error("Supabase xatosi:", method, path, r.status, text);
-    throw new Error("db " + r.status + " " + text.slice(0, 300));
+    console.error("Supabase xatosi:", method, redact(path), r.status, redact(text));
+    throw new Error("db " + r.status + " " + redact(text).slice(0, 300));
   }
   try { return text ? JSON.parse(text) : null; } catch (e) { return null; }
 }
@@ -174,7 +181,7 @@ async function ensureProfile(from, phone, verified) {
         if (!other) await rest("PATCH", "profiles?id=eq." + existing.id, { phone: phone, phone_verified: verified }, "return=minimal");
       } catch (e) { console.error("Telefon yozilmadi:", e.message); }
     }
-    return existing.id;
+    return { id: existing.id, fresh: false };
   }
   if (phone) {
     // Shu raqamli akkaunt (masalan saytdagi) allaqachon bor bo'lsa, Telegram'ni o'sha akkauntga ulaymiz
@@ -182,7 +189,7 @@ async function ensureProfile(from, phone, verified) {
     if (byPhone) {
       if (byPhone.telegram_id && String(byPhone.telegram_id) !== String(from.id)) throw new Error("phone_taken");
       await rest("PATCH", "profiles?id=eq." + byPhone.id, { telegram_id: from.id, phone_verified: !!verified }, "return=minimal");
-      return byPhone.id;
+      return { id: byPhone.id, fresh: false };
     }
   }
   const name = ((from.first_name || "") + " " + (from.last_name || "")).trim() || "Telegram foydalanuvchi";
@@ -223,7 +230,7 @@ async function ensureProfile(from, phone, verified) {
     }
     throw e;
   }
-  return uid;
+  return { id: uid, fresh: true };
 }
 
 async function uploadPhoto(file_id, listingId, i) {
@@ -323,7 +330,12 @@ async function prompt(chat_id, step, d) {
     case "photos": {
       const rows = [[cb(EM.check + " Tayyor", "p:done")]];
       if (d.type === "xarid") rows.push([cb(EM.skip + " Rasmsiz davom etish", "p:skip")]);
-      return send(chat_id, EM.camera + " Rasmlarni yuboring (1 dan " + MAX_PHOTOS + " tagacha). Tugagach \"Tayyor\" tugmasini bosing.", { reply_markup: { inline_keyboard: rows } });
+      return send(chat_id, EM.camera + " Rasmlarni hozir kamera orqali oling va yuboring (1 dan " + MAX_PHOTOS + " tagacha). Mol yoki mahsulot yaqqol ko'rinsin.\n\nFaqat o'zingiz olgan rasm bo'lsin: boshqa joydan olingan yoki yo'naltirilgan rasmlar qabul qilinmaydi, soxta rasmli e'lonlar o'chiriladi.\n\nTugagach \"Tayyor\" tugmasini bosing.", { reply_markup: { inline_keyboard: rows } });
+    }
+    case "video": {
+      const rows = [];
+      if (d.type === "xarid" || !VIDEO_REQUIRED_FOR_SALE) rows.push([cb(EM.skip + " Videosiz davom etish", "v:skip")]);
+      return send(chat_id, EM.video + " Endi 1 ta jonli video yuboring (ko'pi bilan 1 daqiqa). Video faqat Telegram kanalda ko'rinadi.\n\nQanday yoziladi: chatdagi mikrofon belgisini bir marta bosing, u kamera belgisiga aylanadi. Keyin ushlab turib dumaloq video yozing. Molni yoki mahsulotni aylanib ko'rsating.", rows.length ? { reply_markup: { inline_keyboard: rows } } : {});
     }
     case "phone":
       return send(chat_id, EM.mobile + " Xaridorlar bog'lanishi uchun telefon raqamingizni ulashing. Pastdagi tugmani bosing:", {
@@ -345,7 +357,7 @@ async function summary(d) {
     lines.push("Mahsulot: " + d.product, "Miqdor: " + d.quantity + " " + (LABELS[d.unit] || d.unit));
   }
   lines.push("Narx: " + fmt(d.price) + " so'm", "Hudud: " + d.region + ", " + d.district);
-  lines.push("Rasmlar: " + d.photoCount + " ta");
+  lines.push("Rasmlar: " + d.photoCount + " ta", "Video: " + (d.video ? "bor (" + d.video.duration + " soniya)" : "yo'q"));
   if (d.phone) lines.push("Telefon: " + d.phone);
   lines.push("", "\"Joylash\" tugmasini bosib, platforma qoidalariga rozilik bildirasiz.");
   return lines.join("\n");
@@ -358,36 +370,190 @@ async function advance(chat_id, tid, d, cur) {
   return prompt(chat_id, step, d);
 }
 
+// ---------- Telegram kanal ----------
+let BOT_INFO = null;
+async function botInfo() {
+  if (!BOT_INFO) {
+    const r = await tg("getMe", {});
+    if (r.ok) BOT_INFO = r.result;
+  }
+  return BOT_INFO || {};
+}
+const esc = (x) => String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const tag = (x) => "#" + String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+function channelCaption(d, listing, bot) {
+  const buy = d.type === "xarid";
+  const L = [];
+  const emoji = catTitle(d.category).split(" ")[0];
+  if (isAnimal(d.category)) {
+    L.push(emoji + " <b>" + esc(d.breed) + ", " + esc(d.gender) + "</b>" + (buy ? " - SOTIB OLINADI" : ""));
+    L.push("");
+    L.push(EM.scale + " Vazn: " + esc(d.weight) + " kg");
+    L.push(EM.calendar + " Yosh: " + esc(d.age));
+    L.push(EM.heart + " Holati: " + esc(LABELS[d.health] || d.health));
+    L.push(EM.target + " Maqsadi: " + esc(LABELS[d.purpose] || d.purpose));
+  } else {
+    L.push(emoji + " <b>" + esc(d.product) + "</b>" + (buy ? " - SOTIB OLINADI" : ""));
+    L.push("");
+    L.push(EM.scale + " Miqdor: " + esc(d.quantity) + " " + esc(LABELS[d.unit] || d.unit));
+  }
+  L.push(EM.money + " " + (buy ? "Narx (gacha): " : "Narx: ") + "<b>" + fmt(d.price) + " so'm</b>");
+  L.push(EM.pin + " " + esc(d.region) + ", " + esc(d.district));
+  L.push("");
+  L.push(EM.link + " <a href=\"" + SITE_URL + "/?listing=" + listing.id + "\">Saytda ko'rish</a>");
+  if (bot && bot.username) {
+    L.push(EM.phone + " <a href=\"https://t.me/" + bot.username + "?start=l_" + listing.id + "\">Sotuvchi bilan bog'lanish</a>");
+  }
+  L.push("");
+  L.push([tag(d.category), tag(String(d.region).split(" ")[0]), tag(buy ? "xarid" : "sotuv")].join(" ") + (listing.listing_code ? "  Kod: " + esc(listing.listing_code) : ""));
+  return L.join("\n").slice(0, 1000);
+}
+
+async function postToChannel(d, listing, photos) {
+  if (!CHANNEL) return { skipped: true };
+  const bot = await botInfo();
+  const caption = channelCaption(d, listing, bot);
+  let r;
+  let ids = [];
+  if (photos.length >= 2) {
+    const media = photos.slice(0, 10).map((p, i) => {
+      const m = { type: "photo", media: p.file_id };
+      if (i === 0) { m.caption = caption; m.parse_mode = "HTML"; }
+      return m;
+    });
+    r = await tg("sendMediaGroup", { chat_id: CHANNEL, media: media });
+    if (r.ok) ids = (r.result || []).map((m) => m.message_id);
+  } else if (photos.length === 1) {
+    r = await tg("sendPhoto", { chat_id: CHANNEL, photo: photos[0].file_id, caption: caption, parse_mode: "HTML" });
+    if (r.ok) ids = [r.result.message_id];
+  } else {
+    r = await tg("sendMessage", { chat_id: CHANNEL, text: caption, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+    if (r.ok) ids = [r.result.message_id];
+  }
+  if (!r.ok) throw new Error("kanal: " + (r.description || "xato"));
+  if (d.video && ids.length) {
+    const reply = { message_id: ids[0] };
+    const vr = d.video.kind === "note"
+      ? await tg("sendVideoNote", { chat_id: CHANNEL, video_note: d.video.file_id, reply_parameters: reply })
+      : await tg("sendVideo", { chat_id: CHANNEL, video: d.video.file_id, reply_parameters: reply });
+    if (vr.ok) ids.push(vr.result.message_id);
+    else console.error("Video kanalga yuborilmadi:", vr.description);
+  }
+  await rest("POST", "telegram_posts", { listing_id: listing.id, chat: String(CHANNEL), message_ids: ids }, "return=minimal")
+    .catch((e) => console.error("telegram_posts yozilmadi:", e.message));
+  return { ok: true };
+}
+
+async function showContact(chat_id, id, from) {
+  const rows = await rest("GET", "listings?id=eq." + id + "&status=eq.active&select=id,seller_id,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region");
+  const l = rows && rows[0];
+  if (!l) return send(chat_id, "Bu e'lon topilmadi yoki allaqachon sotilgan.", { reply_markup: MENU });
+  const ps = await rest("GET", "profiles?id=eq." + l.seller_id + "&select=full_name,phone,telegram_id");
+  const p = ps && ps[0];
+  const own = p && p.telegram_id && String(p.telegram_id) === String(from.id);
+  if (!own) {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const mine = (await rest("GET", "contact_reveals?telegram_id=eq." + from.id + "&created_at=gte." + encodeURIComponent(since) + "&select=listing_id")) || [];
+    const seen = mine.some((x) => String(x.listing_id) === String(l.id));
+    if (!seen) {
+      if (mine.length >= REVEAL_LIMIT) {
+        return send(chat_id, EM.warn + " Siz bugun juda ko'p sotuvchi raqamini ochdingiz (" + REVEAL_LIMIT + " tagacha). Ertaga davom ettiring.", { reply_markup: MENU });
+      }
+      await rest("POST", "contact_reveals", { telegram_id: from.id, listing_id: l.id }, "return=minimal");
+      if (p && p.telegram_id) {
+        try {
+          await send(p.telegram_id, EM.eye + " Sizning e'loningiz bo'yicha bir xaridor telefon raqamingizni oldi:\n\n" + listingLine(l));
+        } catch (e) { console.error("Sotuvchiga xabar yuborilmadi:", e.message); }
+      }
+    }
+  }
+  const first = String((p && p.full_name) || "").trim().split(" ")[0] || "-";
+  const lines = [listingLine(l), "", EM.user + " Sotuvchi: " + first, EM.phone + " Telefon: " + ((p && p.phone) || "ko'rsatilmagan")];
+  return send(chat_id, lines.join("\n"), { reply_markup: MENU });
+}
+
+// ---------- Saytga kirish (bir martalik havola) ----------
+async function siteLoginLink(tid) {
+  const prof = await findProfile(tid);
+  if (!prof) return null;
+  const r = await fetch(SB_URL + "/auth/v1/admin/generate_link", {
+    method: "POST",
+    headers: sbHeaders(),
+    body: JSON.stringify({ type: "magiclink", email: "tg" + tid + "@telegram.invalid", redirect_to: SITE_URL }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return null;
+  const link = j.action_link || (j.properties && j.properties.action_link);
+  const uid = j.id || (j.user && j.user.id);
+  if (!link || (uid && String(uid) !== String(prof.id))) return null;
+  return link;
+}
+async function sendSiteLogin(chat_id, tid) {
+  let link = null;
+  try { link = await siteLoginLink(tid); } catch (e) { console.error("Kirish havolasi:", redact(e.message)); }
+  if (!link) {
+    return send(chat_id, "Saytga o'z email va parolingiz bilan kiring: " + SITE_URL, { reply_markup: MENU });
+  }
+  return send(chat_id, EM.key + " Saytga kirish uchun tugmani bosing. Havola 1 soat amal qiladi va faqat bir marta ishlaydi. Uni hech kimga yubormang.", {
+    reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", url: link }]] },
+  });
+}
+
 // ---------- E'lonni bazaga yozish ----------
 async function publish(chat_id, from, d) {
   const tid = from.id;
   let profileId;
+  let fresh = false;
   try {
-    profileId = await ensureProfile(from, d.phone, d.phoneVerified);
+    const prof = await ensureProfile(from, d.phone, d.phoneVerified);
+    profileId = prof.id;
+    fresh = prof.fresh;
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const recent = await rest("GET", "listings?seller_id=eq." + profileId + "&created_at=gte." + encodeURIComponent(since) + "&select=id");
     if (recent && recent.length >= DAILY_LIMIT) {
       await clearSession(tid);
       return send(chat_id, EM.warn + " Bir kunda ko'pi bilan " + DAILY_LIMIT + " ta e'lon joylash mumkin. Ertaga qayta urinib ko'ring.", { reply_markup: MENU });
     }
-    const payload = { seller_id: profileId, category: d.category, listing_type: d.type, price: d.price, region: d.region, district: d.district };
+    const payload = { seller_id: profileId, category: d.category, listing_type: d.type, price: d.price, region: d.region, district: d.district, plan: "free" };
     if (isAnimal(d.category)) {
       Object.assign(payload, { breed: d.breed, gender: d.gender, age_text: d.age, weight_kg: d.weight, weight_source: "seller", health_status: d.health, purpose: d.purpose });
     } else {
       Object.assign(payload, { product_name: d.product, quantity: d.quantity, unit: d.unit });
     }
-    const rows = await rest("POST", "listings", payload, "return=representation");
+    let rows;
+    try {
+      rows = await rest("POST", "listings", payload, "return=representation");
+    } catch (e) {
+      if (/plan/.test(e.message)) { delete payload.plan; rows = await rest("POST", "listings", payload, "return=representation"); }
+      else throw e;
+    }
     const listing = Array.isArray(rows) ? rows[0] : rows;
 
     const photos = await listPhotos(tid);
     const results = await Promise.allSettled(photos.map((p, i) => uploadPhoto(p.file_id, listing.id, i)));
     const failed = results.filter((x) => x.status === "rejected");
     failed.forEach((x) => console.error("Rasm yuklanmadi:", x.reason));
+    let channelNote = "";
+    try {
+      const cp = await postToChannel(d, listing, photos);
+      if (cp.ok) channelNote = "\n" + EM.megaphone + " Telegram kanalda ham e'lon qilindi.";
+    } catch (e) {
+      console.error("Kanalga yuborilmadi:", e);
+      channelNote = "\n" + EM.warn + " Kanalga yuborilmadi, lekin saytda e'lon bor.";
+    }
     await clearSession(tid);
 
     let text = EM.party + " E'lon joylandi!" + (listing.listing_code ? " Kod: " + listing.listing_code : "") + "\n" + EM.link + " " + SITE_URL + "/?listing=" + listing.id;
+    text += channelNote;
     if (failed.length) text += "\n\n" + EM.warn + " " + failed.length + " ta rasm yuklanmadi. Saytdan qo'shishingiz mumkin.";
-    return send(chat_id, text, { reply_markup: MENU });
+    await send(chat_id, text, { reply_markup: MENU });
+    if (fresh) {
+      await send(chat_id, EM.key + " Saytda ham akkauntingiz ochildi. E'lonlaringizni boshqarish, xaridorlar savollariga javob berish va bildirishnoma olish uchun saytga kiring:", {
+        reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", callback_data: "web" }]] },
+      });
+    }
+    return;
   } catch (e) {
     if (e && e.message === "phone_taken") {
       await clearSession(tid).catch(() => {});
@@ -430,7 +596,9 @@ async function runMenu(action, chat_id, from) {
     if (!p) return send(chat_id, "Sizda hali e'lon yo'q.", { reply_markup: MENU });
     const rows = await rest("GET", "listings?seller_id=eq." + p.id + "&select=id,category,listing_type,listing_code,status,breed,gender,weight_kg,product_name,quantity,unit,price,region&order=created_at.desc&limit=10");
     if (!rows || !rows.length) return send(chat_id, "Sizda hali e'lon yo'q.", { reply_markup: MENU });
-    return send(chat_id, EM.user + " Sizning e'lonlaringiz:\n\n" + rows.map((l) => listingLine(l) + (l.status === "sold" ? "\n(sotilgan)" : "")).join("\n\n"), { reply_markup: MENU });
+    return send(chat_id, EM.user + " Sizning e'lonlaringiz:\n\n" + rows.map((l) => listingLine(l) + (l.status === "sold" ? "\n(sotilgan)" : "")).join("\n\n"), {
+      reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", callback_data: "web" }]] },
+    });
   }
   if (action === "help") return send(chat_id, EM.phone + " Savol va takliflar uchun saytimizga kiring: " + SITE_URL, { reply_markup: MENU });
   return send(chat_id, EM.construction + " Bu bo'lim tez orada ishga tushadi.", { reply_markup: MENU });
@@ -443,6 +611,11 @@ async function onMessage(msg) {
   const from = msg.from;
   const text = (msg.text || "").trim();
 
+  const deep = text.match(/^\/start l_([A-Za-z0-9-]{1,64})$/);
+  if (deep) {
+    await clearSession(from.id).catch(() => {});
+    return showContact(chat_id, deep[1], from);
+  }
   if (text.indexOf("/start") === 0) {
     await clearSession(from.id).catch(() => {});
     return send(chat_id, EM.cow + " CHORVA MARKET\n\nMolni bozorga olib bormang. Xaridoringizni toping.\n\nQuyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
@@ -471,11 +644,36 @@ async function onMessage(msg) {
   const step = session.step;
 
   if (step === "photos" && msg.photo) {
+    if (msg.forward_origin || msg.forward_date) {
+      return send(chat_id, EM.warn + " Yo'naltirilgan (forward) rasm qabul qilinmaydi. Iltimos, rasmni hozir kamera orqali o'zingiz oling.");
+    }
     const count = (await listPhotos(from.id)).length;
     if (count >= MAX_PHOTOS) return send(chat_id, "Ko'pi bilan " + MAX_PHOTOS + " ta rasm. \"Tayyor\" tugmasini bosing.");
     const best = msg.photo[msg.photo.length - 1];
     await rest("POST", "bot_photos", { telegram_id: from.id, file_id: best.file_id }, "return=minimal");
     return send(chat_id, EM.check + " Rasm qabul qilindi. Yana yuboring yoki \"Tayyor\" tugmasini bosing.");
+  }
+  if (step === "photos" && (msg.document || msg.video || msg.video_note)) {
+    return send(chat_id, "Bu bosqichda faqat kamera orqali olingan rasm qabul qilinadi. Video keyingi bosqichda so'raladi.");
+  }
+
+  if (step === "video" && (msg.video_note || msg.video)) {
+    if (msg.forward_origin || msg.forward_date) {
+      return send(chat_id, EM.warn + " Yo'naltirilgan video qabul qilinmaydi. Iltimos, videoni hozir o'zingiz yozing.");
+    }
+    if (msg.video && LIVE_VIDEO_ONLY) {
+      return send(chat_id, EM.warn + " Faqat jonli (dumaloq) video qabul qilinadi.\n\nChatdagi mikrofon belgisini bir marta bosing, u kamera belgisiga aylanadi. Keyin ushlab turib video yozing.");
+    }
+    const v = msg.video_note || msg.video;
+    if (!v.duration || v.duration > MAX_VIDEO_SEC) {
+      return send(chat_id, EM.warn + " Video 1 daqiqadan oshmasligi kerak. Qisqaroq yozib qayta yuboring.");
+    }
+    d.video = { kind: msg.video_note ? "note" : "video", file_id: v.file_id, duration: v.duration };
+    await send(chat_id, EM.check + " Video qabul qilindi.");
+    return advance(chat_id, from.id, d, "video");
+  }
+  if (step === "video" && msg.photo) {
+    return send(chat_id, "Hozir video kerak. Mikrofon belgisini bosib, dumaloq video yozing.");
   }
 
   if (step === "phone" && msg.contact) {
@@ -521,6 +719,11 @@ async function onCallback(cq) {
   const data = cq.data || "";
   const answer = (text, alert) => tg("answerCallbackQuery", { callback_query_id: cq.id, text: text, show_alert: !!alert });
   const mark = (label) => tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: (cq.message.text || "") + "\n\n" + EM.check + " " + label });
+
+  if (data === "web") {
+    await answer();
+    return sendSiteLogin(chat_id, from.id);
+  }
 
   // Kategoriyalar bo'yicha ko'rish
   if (data === "cats") {
@@ -602,6 +805,12 @@ async function onCallback(cq) {
     await tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: { inline_keyboard: [] } });
     return advance(chat_id, from.id, d, "photos");
   }
+  if (data === "v:skip" && step === "video") {
+    if (d.type !== "xarid" && VIDEO_REQUIRED_FOR_SALE) return answer("Sotuv e'lonida video majburiy.", true);
+    await answer();
+    await tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: { inline_keyboard: [] } });
+    return advance(chat_id, from.id, d, "video");
+  }
   if (data === "p:skip" && step === "photos" && d.type === "xarid") {
     await answer();
     await tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: { inline_keyboard: [] } });
@@ -622,11 +831,22 @@ async function diagnose() {
     : (SB_KEY.indexOf("sb_secret_") === 0 || SB_KEY.indexOf("eyJ") === 0) ? "bor"
     : "NOTO'G'RI shaklda";
   if (out.supabase_url === "to'g'ri shaklda" && out.supabase_key === "bor") {
-    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id"];
+    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id", "telegram_posts", "contact_reveals", "listings?select=plan"];
     for (const t of tables) {
       try { await rest("GET", (t.indexOf("?") >= 0 ? t + "&limit=1" : t + "?select=*&limit=1")); out["jadval_" + t.replace("?select=", ".")] = "ishlayapti"; }
       catch (e) { out["jadval_" + t.replace("?select=", ".")] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
     }
+  }
+  if (!CHANNEL) {
+    out.kanal = "sozlanmagan (TELEGRAM_CHANNEL yo'q)";
+  } else if (TOKEN) {
+    try {
+      const me = await botInfo();
+      const m = await tg("getChatMember", { chat_id: CHANNEL, user_id: me.id });
+      out.kanal = m.ok
+        ? (m.result.status === "administrator" && m.result.can_post_messages !== false ? "tayyor (bot admin)" : "bot admin emas yoki post yuborish huquqi yo'q: " + m.result.status)
+        : "XATO: " + String(m.description || "").slice(0, 100);
+    } catch (e) { out.kanal = "XATO"; }
   }
   return out;
 }
