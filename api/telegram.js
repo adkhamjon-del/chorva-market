@@ -7,7 +7,10 @@ const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const SB_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
 const SB_KEY = (process.env.SUPABASE_SECRET_KEY || "").trim();
-const CHANNEL = (process.env.TELEGRAM_CHANNEL || "").trim();
+// Kanal nomi: Vercel'dagi CHANNEL_USERNAME yoki TELEGRAM_CHANNEL o'zgaruvchisidan olinadi.
+// O'zgaruvchisiz ishlatish uchun shu qatordagi qo'sh tirnoq orasiga kanal havolasini yozing, masalan "@chorvamarket_elonlar".
+const CHANNEL_FALLBACK = "";
+const CHANNEL = (process.env.CHANNEL_USERNAME || process.env.TELEGRAM_CHANNEL || CHANNEL_FALLBACK).trim();
 const SITE_URL = "https://chorva-market-olive.vercel.app";
 const VIDEO_REQUIRED_FOR_SALE = true; // sotuv e'lonida video majburiy (sotib olish e'lonida ixtiyoriy)
 const LIVE_VIDEO_ONLY = true;         // true: faqat jonli dumaloq video; false: oddiy video ham qabul qilinadi
@@ -837,8 +840,10 @@ async function diagnose() {
       catch (e) { out["jadval_" + t.replace("?select=", ".")] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
     }
   }
+  const envState = (k) => (!(k in process.env) ? "yo'q" : (String(process.env[k]).trim() ? "bor" : "BO'SH"));
+  out.kanal_ozgaruvchilari = { CHANNEL_USERNAME: envState("CHANNEL_USERNAME"), TELEGRAM_CHANNEL: envState("TELEGRAM_CHANNEL"), kodda_yozilgan: CHANNEL_FALLBACK ? "bor" : "yo'q" };
   if (!CHANNEL) {
-    out.kanal = "sozlanmagan (TELEGRAM_CHANNEL yo'q)";
+    out.kanal = "sozlanmagan";
   } else if (TOKEN) {
     try {
       const me = await botInfo();
