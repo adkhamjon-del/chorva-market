@@ -9,7 +9,7 @@ const SB_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
 const SB_KEY = (process.env.SUPABASE_SECRET_KEY || "").trim();
 // Kanal nomi: Vercel'dagi CHANNEL_USERNAME yoki TELEGRAM_CHANNEL o'zgaruvchisidan olinadi.
 // O'zgaruvchisiz ishlatish uchun shu qatordagi qo'sh tirnoq orasiga kanal havolasini yozing, masalan "@chorvamarket_elonlar".
-const CHANNEL_FALLBACK = "@chorvamarket_elonlar";
+const CHANNEL_FALLBACK = "";
 const CHANNEL = (process.env.CHANNEL_USERNAME || process.env.TELEGRAM_CHANNEL || CHANNEL_FALLBACK).trim();
 const SITE_URL = "https://chorva-market-olive.vercel.app";
 const VIDEO_REQUIRED_FOR_SALE = true; // sotuv e'lonida video majburiy (sotib olish e'lonida ixtiyoriy)
@@ -385,9 +385,10 @@ async function botInfo() {
 const esc = (x) => String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const tag = (x) => "#" + String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-function channelCaption(d, listing, bot) {
+function channelCaption(d, listing, bot, sold) {
   const buy = d.type === "xarid";
   const L = [];
+  if (sold) { L.push(EM.check + " <b>SOTILDI</b>"); L.push(""); }
   const emoji = catTitle(d.category).split(" ")[0];
   if (isAnimal(d.category)) {
     L.push(emoji + " <b>" + esc(d.breed) + ", " + esc(d.gender) + "</b>" + (buy ? " - SOTIB OLINADI" : ""));
@@ -404,8 +405,8 @@ function channelCaption(d, listing, bot) {
   L.push(EM.money + " " + (buy ? "Narx (gacha): " : "Narx: ") + "<b>" + fmt(d.price) + " so'm</b>");
   L.push(EM.pin + " " + esc(d.region) + ", " + esc(d.district));
   L.push("");
-  L.push(EM.link + " <a href=\"" + SITE_URL + "/?listing=" + listing.id + "\">Saytda ko'rish</a>");
-  if (bot && bot.username) {
+  if (!sold) L.push(EM.link + " <a href=\"" + SITE_URL + "/?listing=" + listing.id + "\">Saytda ko'rish</a>");
+  if (!sold && bot && bot.username) {
     L.push(EM.phone + " <a href=\"https://t.me/" + bot.username + "?start=l_" + listing.id + "\">Sotuvchi bilan bog'lanish</a>");
   }
   L.push("");
@@ -446,6 +447,110 @@ async function postToChannel(d, listing, photos) {
   await rest("POST", "telegram_posts", { listing_id: listing.id, chat: String(CHANNEL), message_ids: ids }, "return=minimal")
     .catch((e) => console.error("telegram_posts yozilmadi:", e.message));
   return { ok: true };
+}
+
+// ---------- Sotildi / o'chirish / admin ----------
+const rowToData = (l) => ({
+  type: l.listing_type, category: l.category, breed: l.breed, gender: l.gender, weight: l.weight_kg, age: l.age_text,
+  health: l.health_status, purpose: l.purpose, product: l.product_name, quantity: l.quantity, unit: l.unit,
+  price: l.price, region: l.region, district: l.district,
+});
+
+async function getAdminProfile(tid) {
+  const rows = await rest("GET", "profiles?telegram_id=eq." + tid + "&select=id,is_admin");
+  return rows && rows[0] && rows[0].is_admin ? rows[0] : null;
+}
+async function isBlocked(tid) {
+  try {
+    const rows = await rest("GET", "profiles?telegram_id=eq." + tid + "&select=blocked");
+    return !!(rows && rows[0] && rows[0].blocked);
+  } catch (e) { return false; } // ustun hali yaratilmagan bo'lsa to'sib qo'ymaymiz
+}
+
+async function editPost(chat, mid, text) {
+  let r = await tg("editMessageCaption", { chat_id: chat, message_id: mid, caption: text, parse_mode: "HTML" });
+  if (!r.ok && /no caption|there is no/i.test(r.description || "")) {
+    r = await tg("editMessageText", { chat_id: chat, message_id: mid, text: text, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+  }
+  return r;
+}
+async function channelPosts(listingId) {
+  try { return (await rest("GET", "telegram_posts?listing_id=eq." + listingId + "&select=id,chat,message_ids")) || []; }
+  catch (e) { return []; }
+}
+async function markSoldInChannel(listing) {
+  const posts = await channelPosts(listing.id);
+  if (!posts.length) return;
+  const bot = await botInfo();
+  const caption = channelCaption(rowToData(listing), listing, bot, true);
+  for (const post of posts) {
+    const ids = post.message_ids || [];
+    if (ids.length) await editPost(post.chat, ids[0], caption);
+  }
+}
+async function removeFromChannel(listingId) {
+  const posts = await channelPosts(listingId);
+  for (const post of posts) {
+    const ids = post.message_ids || [];
+    for (let i = 0; i < ids.length; i++) {
+      const r = await tg("deleteMessage", { chat_id: post.chat, message_id: ids[i] });
+      // Telegram 48 soatdan eski xabarni o'chirtirmaydi: u holda postni "o'chirildi" deb belgilaymiz
+      if (!r.ok && i === 0) await editPost(post.chat, ids[i], EM.cross + " <b>E'lon o'chirildi</b>");
+    }
+  }
+  if (posts.length) await rest("DELETE", "telegram_posts?listing_id=eq." + listingId).catch(() => {});
+}
+async function deleteListingFully(id) {
+  await removeFromChannel(id);
+  const imgs = (await rest("GET", "listing_images?listing_id=eq." + id + "&select=url").catch(() => [])) || [];
+  for (const im of imgs) {
+    const path = String(im.url).split("/object/public/listing-photos/")[1];
+    if (path) await fetch(SB_URL + "/storage/v1/object/listing-photos/" + path, { method: "DELETE", headers: sbHeaders() }).catch(() => {});
+  }
+  await rest("DELETE", "listing_images?listing_id=eq." + id).catch(() => {});
+  await rest("DELETE", "listings?id=eq." + id);
+}
+async function getListing(id) {
+  const rows = await rest("GET", "listings?id=eq." + encodeURIComponent(id) + "&select=*");
+  return rows && rows[0] ? rows[0] : null;
+}
+async function ownsListing(tid, l) {
+  const p = await findProfile(tid);
+  return !!(p && l && p.id === l.seller_id);
+}
+const myButtons = (id) => ({ inline_keyboard: [[{ text: EM.check + " Sotildi", callback_data: "sold:" + id }, { text: EM.cross + " O'chirish", callback_data: "del:" + id }]] });
+const confirmButtons = (yes, id, label) => ({ inline_keyboard: [[{ text: label, callback_data: yes + ":" + id }, { text: "Yo'q", callback_data: "back:" + id }]] });
+
+async function adminPanel(chat_id) {
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const active = (await rest("GET", "listings?status=eq.active&select=id")) || [];
+  const fresh = (await rest("GET", "listings?created_at=gte." + encodeURIComponent(since) + "&select=id")) || [];
+  const pending = (await rest("GET", "reports?status=eq.pending&select=id").catch(() => [])) || [];
+  return send(chat_id, "Admin panel\n\nFaol e'lonlar: " + active.length + "\nSo'nggi 24 soatda: " + fresh.length + "\nKutilayotgan shikoyatlar: " + pending.length, {
+    reply_markup: { inline_keyboard: [[{ text: "Shikoyatlar (" + pending.length + ")", callback_data: "adm:reports" }, { text: "So'nggi e'lonlar", callback_data: "adm:recent" }]] },
+  });
+}
+async function adminReports(chat_id) {
+  const reps = (await rest("GET", "reports?status=eq.pending&select=id,reason,listing_id,listings(id,seller_id,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region)&order=created_at.desc&limit=5")) || [];
+  if (!reps.length) return send(chat_id, "Kutilayotgan shikoyat yo'q.");
+  for (const r of reps) {
+    if (!r.listings) { await rest("PATCH", "reports?id=eq." + r.id, { status: "reviewed" }, "return=minimal").catch(() => {}); continue; }
+    await send(chat_id, EM.warn + " Shikoyat: " + (r.reason || "-") + "\n\n" + listingLine(r.listings), {
+      reply_markup: { inline_keyboard: [
+        [{ text: "E'lonni o'chirish", callback_data: "adel:" + r.listings.id }, { text: "Rad etish", callback_data: "adis:" + r.id }],
+        [{ text: "Egasini bloklash", callback_data: "ablk:" + r.listings.seller_id }],
+      ] },
+    });
+  }
+}
+async function adminRecent(chat_id) {
+  const rows = (await rest("GET", "listings?select=id,seller_id,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region,status&order=created_at.desc&limit=5")) || [];
+  if (!rows.length) return send(chat_id, "E'lonlar yo'q.");
+  for (const l of rows) {
+    await send(chat_id, listingLine(l) + (l.status === "sold" ? "\n(sotilgan)" : ""), {
+      reply_markup: { inline_keyboard: [[{ text: "O'chirish", callback_data: "adel:" + l.id }, { text: "Egasini bloklash", callback_data: "ablk:" + l.seller_id }]] },
+    });
+  }
 }
 
 async function showContact(chat_id, id, from) {
@@ -508,6 +613,10 @@ async function publish(chat_id, from, d) {
   const tid = from.id;
   let profileId;
   let fresh = false;
+  if (await isBlocked(tid)) {
+    await clearSession(tid).catch(() => {});
+    return send(chat_id, EM.warn + " Akkauntingiz qoidalar buzilgani uchun bloklangan.", { reply_markup: MENU });
+  }
   try {
     const prof = await ensureProfile(from, d.phone, d.phoneVerified);
     profileId = prof.id;
@@ -583,6 +692,7 @@ function menuAction(text) {
 }
 
 async function startListing(chat_id, from) {
+  if (await isBlocked(from.id)) return send(chat_id, EM.warn + " Akkauntingiz qoidalar buzilgani uchun bloklangan.", { reply_markup: MENU });
   const p = await findProfile(from.id);
   const d = { hasPhone: !!(p && p.phone) };
   await saveSession(from.id, "type", d);
@@ -597,9 +707,13 @@ async function runMenu(action, chat_id, from) {
   if (action === "mine") {
     const p = await findProfile(from.id);
     if (!p) return send(chat_id, "Sizda hali e'lon yo'q.", { reply_markup: MENU });
-    const rows = await rest("GET", "listings?seller_id=eq." + p.id + "&select=id,category,listing_type,listing_code,status,breed,gender,weight_kg,product_name,quantity,unit,price,region&order=created_at.desc&limit=10");
+    const rows = await rest("GET", "listings?seller_id=eq." + p.id + "&select=id,category,listing_type,listing_code,status,breed,gender,weight_kg,product_name,quantity,unit,price,region&order=created_at.desc&limit=5");
     if (!rows || !rows.length) return send(chat_id, "Sizda hali e'lon yo'q.", { reply_markup: MENU });
-    return send(chat_id, EM.user + " Sizning e'lonlaringiz:\n\n" + rows.map((l) => listingLine(l) + (l.status === "sold" ? "\n(sotilgan)" : "")).join("\n\n"), {
+    await send(chat_id, EM.user + " Sizning so'nggi e'lonlaringiz:", { reply_markup: MENU });
+    for (const l of rows) {
+      await send(chat_id, listingLine(l) + (l.status === "sold" ? "\n(sotilgan)" : ""), l.status === "sold" ? {} : { reply_markup: myButtons(l.id) });
+    }
+    return send(chat_id, "Saytda e'lonlarni boshqarish uchun:", {
       reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", callback_data: "web" }]] },
     });
   }
@@ -622,6 +736,11 @@ async function onMessage(msg) {
   if (text.indexOf("/start") === 0) {
     await clearSession(from.id).catch(() => {});
     return send(chat_id, EM.cow + " CHORVA MARKET\n\nMolni bozorga olib bormang. Xaridoringizni toping.\n\nQuyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
+  }
+  if (text.indexOf("/admin") === 0) {
+    const adm = await getAdminProfile(from.id).catch(() => null);
+    if (!adm) return send(chat_id, "Quyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
+    return adminPanel(chat_id);
   }
   if (text.indexOf("/cancel") === 0) {
     await clearSession(from.id).catch(() => {});
@@ -696,7 +815,7 @@ async function onMessage(msg) {
   }
   if (step === "age" || step === "district") {
     if (text.length > 60) return send(chat_id, "Juda uzun. Qisqaroq yozing.");
-    d[step] = text;
+    d[step] = step === "age" && /^\d{1,2}$/.test(text) ? text + " yosh" : text;
     return advance(chat_id, from.id, d, step);
   }
   if (step === "weight" || step === "quantity") {
@@ -738,6 +857,68 @@ async function onCallback(cq) {
     const key = data.slice(4);
     if (!CATEGORIES.find((c) => c.key === key)) return;
     return showListings(chat_id, "&category=eq." + key, catTitle(key) + " - so'nggi e'lonlar:", backCats());
+  }
+
+  // Sotildi / o'chirish (sotuvchi)
+  if (/^(sold|del|soldok|delok|back):/.test(data)) {
+    const id = data.split(":")[1];
+    const l = await getListing(id);
+    if (!l || !(await ownsListing(from.id, l))) { await answer("Bu e'lon sizniki emas yoki topilmadi.", true); return; }
+    if (data.indexOf("sold:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: confirmButtons("soldok", id, "Ha, sotildi") }); }
+    if (data.indexOf("del:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: confirmButtons("delok", id, "Ha, o'chirish") }); }
+    if (data.indexOf("back:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: myButtons(id) }); }
+    if (data.indexOf("soldok:") === 0) {
+      await rest("PATCH", "listings?id=eq." + id, { status: "sold" }, "return=minimal");
+      await markSoldInChannel(Object.assign({}, l, { status: "sold" })).catch((e) => console.error("Kanal yangilanmadi:", e.message));
+      await answer("Sotilgan deb belgilandi");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: (cq.message.text || "") + "\n\n" + EM.check + " Sotilgan deb belgilandi (saytda ham, kanalda ham)." });
+    }
+    if (data.indexOf("delok:") === 0) {
+      await deleteListingFully(id);
+      await answer("O'chirildi");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: EM.cross + " E'lon o'chirildi (saytdan ham, kanaldan ham)." });
+    }
+  }
+
+  // Admin amallari
+  if (/^(adm|adel|adelok|adis|ablk|ablkok|ano):?/.test(data)) {
+    const adm = await getAdminProfile(from.id).catch(() => null);
+    if (!adm) { await answer(); return; }
+    const arg = data.split(":")[1];
+    if (data === "adm:reports") { await answer(); return adminReports(chat_id); }
+    if (data === "adm:recent") { await answer(); return adminRecent(chat_id); }
+    if (data === "ano:x") { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: { inline_keyboard: [] } }); }
+    const yesNo = (yes, label) => ({ inline_keyboard: [[{ text: label, callback_data: yes + ":" + arg }, { text: "Yo'q", callback_data: "ano:x" }]] });
+    if (data.indexOf("adel:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: yesNo("adelok", "Ha, o'chirish") }); }
+    if (data.indexOf("ablk:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: yesNo("ablkok", "Ha, bloklash") }); }
+    if (data.indexOf("adis:") === 0) {
+      await rest("PATCH", "reports?id=eq." + arg, { status: "dismissed" }, "return=minimal");
+      await answer("Rad etildi");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: (cq.message.text || "") + "\n\nRad etildi." });
+    }
+    if (data.indexOf("adelok:") === 0) {
+      const lst = await getListing(arg).catch(() => null);
+      await deleteListingFully(arg);
+      if (lst) {
+        const sp = ((await rest("GET", "profiles?id=eq." + lst.seller_id + "&select=telegram_id").catch(() => [])) || [])[0];
+        if (sp && sp.telegram_id) await send(sp.telegram_id, EM.warn + " E'loningiz platforma qoidalariga mos kelmagani uchun olib tashlandi.").catch(() => {});
+      }
+      await rest("PATCH", "reports?listing_id=eq." + arg + "&status=eq.pending", { status: "reviewed" }, "return=minimal").catch(() => {});
+      await answer("O'chirildi");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: "E'lon o'chirildi (saytdan va kanaldan)." });
+    }
+    if (data.indexOf("ablkok:") === 0) {
+      const tp = (await rest("GET", "profiles?id=eq." + arg + "&select=id,is_admin,telegram_id"))[0];
+      if (!tp) { await answer("Foydalanuvchi topilmadi", true); return; }
+      if (tp.is_admin) { await answer("Adminni bloklab bo'lmaydi", true); return; }
+      try { await rest("PATCH", "profiles?id=eq." + arg, { blocked: true }, "return=minimal"); }
+      catch (e) { await answer("blocked ustuni yo'q. SQL ni ishga tushiring.", true); return; }
+      const ls = (await rest("GET", "listings?seller_id=eq." + arg + "&select=id&limit=50")) || [];
+      for (const x of ls) { try { await deleteListingFully(x.id); } catch (e) { console.error("O'chirilmadi:", e.message); } }
+      if (tp.telegram_id) await send(tp.telegram_id, EM.warn + " Akkauntingiz qoidalar buzilgani uchun bloklandi va e'lonlaringiz o'chirildi.").catch(() => {});
+      await answer("Bloklandi");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: "Foydalanuvchi bloklandi, " + ls.length + " ta e'loni o'chirildi." });
+    }
   }
 
   // E'lon joylash
@@ -834,7 +1015,7 @@ async function diagnose() {
     : (SB_KEY.indexOf("sb_secret_") === 0 || SB_KEY.indexOf("eyJ") === 0) ? "bor"
     : "NOTO'G'RI shaklda";
   if (out.supabase_url === "to'g'ri shaklda" && out.supabase_key === "bor") {
-    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id", "telegram_posts", "contact_reveals", "listings?select=plan"];
+    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id", "telegram_posts", "contact_reveals", "listings?select=plan", "profiles?select=blocked", "profiles?select=is_admin", "reports"];
     for (const t of tables) {
       try { await rest("GET", (t.indexOf("?") >= 0 ? t + "&limit=1" : t + "?select=*&limit=1")); out["jadval_" + t.replace("?select=", ".")] = "ishlayapti"; }
       catch (e) { out["jadval_" + t.replace("?select=", ".")] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
