@@ -21,7 +21,7 @@ const SUPPORT_DAILY_LIMIT = 5;        // adminga sutkada ko'pi bilan nechta xaba
 const REPORT_DAILY_LIMIT = 5;         // sutkada ko'pi bilan nechta shikoyat
 const STALE_DAYS = 14;                // shuncha kundan keyin sotuvchiga "hali dolzarbmi?" deb eslatiladi
 // Ikkinchi kanal (fermer/qishloq xo'jaligi mahsulotlari). Bo'sh bo'lsa, hamma e'lon asosiy kanalga ketadi.
-const CHANNEL_AGRO_FALLBACK = "";
+const CHANNEL_AGRO_FALLBACK = "@chorvamarket_agro";
 const CHANNEL_AGRO = (process.env.CHANNEL_AGRO || CHANNEL_AGRO_FALLBACK).trim();
 const channelFor = (category) => (category === "fermer" && CHANNEL_AGRO ? CHANNEL_AGRO : CHANNEL);
 const linkOf = (id) => SITE_URL + "/l/" + id;
