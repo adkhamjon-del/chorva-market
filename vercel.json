@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/l/:id", "destination": "/api/l?id=:id" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" }
+  ],
+  "crons": [
+    { "path": "/api/telegram?job=daily", "schedule": "0 4 * * *" }
+  ]
+}
