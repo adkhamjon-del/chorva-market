@@ -16,6 +16,16 @@ const VIDEO_REQUIRED_FOR_SALE = true; // sotuv e'lonida video majburiy (sotib ol
 const LIVE_VIDEO_ONLY = true;         // true: faqat jonli dumaloq video; false: oddiy video ham qabul qilinadi
 const MAX_VIDEO_SEC = 60;
 const REVEAL_LIMIT = 15;              // bir foydalanuvchi sutkada ko'pi bilan nechta sotuvchi raqamini ocha oladi
+const REQUIRE_SUBSCRIPTION = true;    // e'lon berish va raqam olish uchun avval kanalga obuna bo'lish shart
+const SUPPORT_DAILY_LIMIT = 5;        // adminga sutkada ko'pi bilan nechta xabar
+const REPORT_DAILY_LIMIT = 5;         // sutkada ko'pi bilan nechta shikoyat
+const STALE_DAYS = 14;                // shuncha kundan keyin sotuvchiga "hali dolzarbmi?" deb eslatiladi
+// Ikkinchi kanal (fermer/qishloq xo'jaligi mahsulotlari). Bo'sh bo'lsa, hamma e'lon asosiy kanalga ketadi.
+const CHANNEL_AGRO_FALLBACK = "";
+const CHANNEL_AGRO = (process.env.CHANNEL_AGRO || CHANNEL_AGRO_FALLBACK).trim();
+const channelFor = (category) => (category === "fermer" && CHANNEL_AGRO ? CHANNEL_AGRO : CHANNEL);
+const linkOf = (id) => SITE_URL + "/l/" + id;
+const dayKey = () => new Date().toISOString().slice(0, 10);
 const DAILY_LIMIT = 5;
 const MAX_PHOTOS = 6;
 
@@ -28,7 +38,7 @@ const EM = {
   check: E(0x2705), cross: E(0x274C), money: E(0x1F4B0), cart: E(0x1F6D2),
   camera: E(0x1F4F7), mobile: E(0x1F4F1), skip: E(0x23ED) + E(0xFE0F),
   down: E(0x1F447), party: E(0x1F389), warn: E(0x26A0) + E(0xFE0F), link: E(0x1F517),
-  eye: E(0x1F440), key: E(0x1F511), video: E(0x1F3A5), scale: E(0x2696) + E(0xFE0F), calendar: E(0x1F4C5), heart: E(0x1F49A), target: E(0x1F3AF),
+  eye: E(0x1F440), key: E(0x1F511), video: E(0x1F3A5), flag: E(0x1F6A9), mail: E(0x2709) + E(0xFE0F), bell: E(0x1F514), chart: E(0x1F4CA), share: E(0x1F4E4), chat: E(0x1F4AC), scale: E(0x2696) + E(0xFE0F), calendar: E(0x1F4C5), heart: E(0x1F49A), target: E(0x1F3AF),
 };
 
 const MENU = {
@@ -279,14 +289,20 @@ function nextStep(d, cur) {
   return n;
 }
 
-function listingLine(l) {
-  const title = isAnimal(l.category)
+function listingTitle(l) {
+  return isAnimal(l.category)
     ? ((l.breed || "") + " " + (l.gender || "")).trim() + (l.weight_kg ? ", " + l.weight_kg + " kg" : "")
     : (l.product_name || "") + (l.quantity ? ", " + l.quantity + " " + (LABELS[l.unit] || l.unit || "") : "");
-  const kind = l.listing_type === "xarid" ? " (sotib olinadi)" : "";
-  return catTitle(l.category) + ": " + title + kind + "\n" + EM.money + " " + fmt(l.price) + " so'm, " + (l.region || "") +
-    "\n" + EM.link + " " + SITE_URL + "/?listing=" + l.id;
 }
+function listingLine(l) {
+  const kind = l.listing_type === "xarid" ? " (sotib olinadi)" : "";
+  return catTitle(l.category) + ": " + listingTitle(l) + kind + "\n" + EM.money + " " + fmt(l.price) + " so'm, " + (l.region || "") +
+    "\n" + EM.link + " " + linkOf(l.id);
+}
+const shareText = (l) => listingTitle(l) + " - " + fmt(l.price) + " so'm, " + (l.region || "");
+const tgShareUrl = (l) => "https://t.me/share/url?url=" + encodeURIComponent(linkOf(l.id)) + "&text=" + encodeURIComponent(shareText(l));
+const waShareUrl = (l) => "https://wa.me/?text=" + encodeURIComponent(shareText(l) + " " + linkOf(l.id));
+
 async function showListings(chat_id, filter, header, markup) {
   const rows = await rest("GET", "listings?status=eq.active" + filter +
     "&select=id,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region&order=created_at.desc&limit=5");
@@ -404,8 +420,9 @@ function channelCaption(d, listing, bot, sold) {
   }
   L.push(EM.money + " " + (buy ? "Narx (gacha): " : "Narx: ") + "<b>" + fmt(d.price) + " so'm</b>");
   L.push(EM.pin + " " + esc(d.region) + ", " + esc(d.district));
+  if (d.verified && !sold) L.push(EM.check + " Telefon tasdiqlangan");
   L.push("");
-  if (!sold) L.push(EM.link + " <a href=\"" + SITE_URL + "/?listing=" + listing.id + "\">Saytda ko'rish</a>");
+  if (!sold) L.push(EM.link + " <a href=\"" + linkOf(listing.id) + "\">Saytda ko'rish</a>");
   if (!sold && bot && bot.username) {
     L.push(EM.phone + " <a href=\"https://t.me/" + bot.username + "?start=l_" + listing.id + "\">Sotuvchi bilan bog'lanish</a>");
   }
@@ -415,7 +432,8 @@ function channelCaption(d, listing, bot, sold) {
 }
 
 async function postToChannel(d, listing, photos) {
-  if (!CHANNEL) return { skipped: true };
+  const target = channelFor(d.category);
+  if (!target) return { skipped: true };
   const bot = await botInfo();
   const caption = channelCaption(d, listing, bot);
   let r;
@@ -426,25 +444,25 @@ async function postToChannel(d, listing, photos) {
       if (i === 0) { m.caption = caption; m.parse_mode = "HTML"; }
       return m;
     });
-    r = await tg("sendMediaGroup", { chat_id: CHANNEL, media: media });
+    r = await tg("sendMediaGroup", { chat_id: target, media: media });
     if (r.ok) ids = (r.result || []).map((m) => m.message_id);
   } else if (photos.length === 1) {
-    r = await tg("sendPhoto", { chat_id: CHANNEL, photo: photos[0].file_id, caption: caption, parse_mode: "HTML" });
+    r = await tg("sendPhoto", { chat_id: target, photo: photos[0].file_id, caption: caption, parse_mode: "HTML" });
     if (r.ok) ids = [r.result.message_id];
   } else {
-    r = await tg("sendMessage", { chat_id: CHANNEL, text: caption, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+    r = await tg("sendMessage", { chat_id: target, text: caption, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     if (r.ok) ids = [r.result.message_id];
   }
   if (!r.ok) throw new Error("kanal: " + (r.description || "xato"));
   if (d.video && ids.length) {
     const reply = { message_id: ids[0] };
     const vr = d.video.kind === "note"
-      ? await tg("sendVideoNote", { chat_id: CHANNEL, video_note: d.video.file_id, reply_parameters: reply })
-      : await tg("sendVideo", { chat_id: CHANNEL, video: d.video.file_id, reply_parameters: reply });
+      ? await tg("sendVideoNote", { chat_id: target, video_note: d.video.file_id, reply_parameters: reply })
+      : await tg("sendVideo", { chat_id: target, video: d.video.file_id, reply_parameters: reply });
     if (vr.ok) ids.push(vr.result.message_id);
     else console.error("Video kanalga yuborilmadi:", vr.description);
   }
-  await rest("POST", "telegram_posts", { listing_id: listing.id, chat: String(CHANNEL), message_ids: ids }, "return=minimal")
+  await rest("POST", "telegram_posts", { listing_id: listing.id, chat: String(target), message_ids: ids }, "return=minimal")
     .catch((e) => console.error("telegram_posts yozilmadi:", e.message));
   return { ok: true };
 }
@@ -527,7 +545,7 @@ async function adminPanel(chat_id) {
   const fresh = (await rest("GET", "listings?created_at=gte." + encodeURIComponent(since) + "&select=id")) || [];
   const pending = (await rest("GET", "reports?status=eq.pending&select=id").catch(() => [])) || [];
   return send(chat_id, "Admin panel\n\nFaol e'lonlar: " + active.length + "\nSo'nggi 24 soatda: " + fresh.length + "\nKutilayotgan shikoyatlar: " + pending.length, {
-    reply_markup: { inline_keyboard: [[{ text: "Shikoyatlar (" + pending.length + ")", callback_data: "adm:reports" }, { text: "So'nggi e'lonlar", callback_data: "adm:recent" }]] },
+    reply_markup: { inline_keyboard: [[{ text: "Shikoyatlar (" + pending.length + ")", callback_data: "adm:reports" }, { text: "So'nggi e'lonlar", callback_data: "adm:recent" }], [{ text: "Statistika", callback_data: "adm:stats" }]] },
   });
 }
 async function adminReports(chat_id) {
@@ -553,14 +571,148 @@ async function adminRecent(chat_id) {
   }
 }
 
+// ---------- Obuna, bildirishnoma, yordamchilar ----------
+async function isSubscribed(tid) {
+  if (!REQUIRE_SUBSCRIPTION || !CHANNEL || CHANNEL.charAt(0) !== "@") return true;
+  const r = await tg("getChatMember", { chat_id: CHANNEL, user_id: tid });
+  if (!r.ok) return true; // tekshirib bo'lmasa, foydalanuvchini to'smaymiz
+  const st = r.result && r.result.status;
+  return st === "member" || st === "administrator" || st === "creator" || (st === "restricted" && !!r.result.is_member);
+}
+function sendSubscribe(chat_id) {
+  return send(chat_id, EM.megaphone + " Botdan foydalanish uchun avval kanalimizga obuna bo'ling: yangi e'lonlar va sotilganlar shu yerda. Obuna bo'lgach, \"Obuna bo'ldim\" tugmasini bosing.", {
+    reply_markup: { inline_keyboard: [
+      [{ text: EM.megaphone + " Kanalga obuna bo'lish", url: "https://t.me/" + CHANNEL.slice(1) }],
+      [{ text: EM.check + " Obuna bo'ldim", callback_data: "sub" }],
+    ] },
+  });
+}
+// Bir martalik kalit: takroriy xabar va kunlik limitlar uchun (bot_notices jadvali)
+async function claimNotice(key) {
+  checkConfig();
+  const r = await fetch(SB_URL + "/rest/v1/bot_notices", {
+    method: "POST",
+    headers: sbHeaders({ Prefer: "return=minimal" }),
+    body: JSON.stringify({ key: key }),
+  });
+  if (r.status === 409) return false;
+  if (!r.ok) throw new Error("bot_notices " + r.status);
+  return true;
+}
+async function claimDaily(prefix, tid, limit) {
+  const day = dayKey();
+  for (let i = 1; i <= limit; i++) {
+    if (await claimNotice(prefix + ":" + tid + ":" + day + ":" + i)) return true;
+  }
+  return false;
+}
+async function notifyAdmins(text, extra) {
+  const admins = (await rest("GET", "profiles?is_admin=eq.true&telegram_id=not.is.null&select=telegram_id").catch(() => [])) || [];
+  for (const a of admins) {
+    if (a.telegram_id) await send(a.telegram_id, text, extra).catch(() => {});
+  }
+}
+async function restCount(path) {
+  checkConfig();
+  const r = await fetch(SB_URL + "/rest/v1/" + path, { method: "HEAD", headers: sbHeaders({ Prefer: "count=exact" }) });
+  const n = parseInt(String(r.headers.get("content-range") || "").split("/")[1], 10);
+  return isNaN(n) ? 0 : n;
+}
+async function telegramIdsOf(profileIds) {
+  const m = {};
+  if (!profileIds.length) return m;
+  const rows = (await rest("GET", "profiles?id=in.(" + profileIds.join(",") + ")&select=id,telegram_id")) || [];
+  rows.forEach((r) => { if (r.telegram_id) m[r.id] = r.telegram_id; });
+  return m;
+}
+const REPORT_REASONS = ["Soxta e'lon yoki rasm", "Narx noto'g'ri", "Spam yoki firibgarlik", "Allaqachon sotilgan"];
+const freshButtons = (id) => ({ inline_keyboard: [
+  [{ text: EM.check + " Hali dolzarb", callback_data: "fresh:" + id }],
+  [{ text: EM.check + " Sotildi", callback_data: "sold:" + id }, { text: EM.cross + " O'chirish", callback_data: "del:" + id }],
+] });
+
+async function adminStats(chat_id) {
+  const since = encodeURIComponent(new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+  const [active, sold, users, tgUsers, new7, reveals7, pending] = await Promise.all([
+    restCount("listings?status=eq.active&select=id"),
+    restCount("listings?status=eq.sold&select=id"),
+    restCount("profiles?select=id"),
+    restCount("profiles?telegram_id=not.is.null&select=id"),
+    restCount("listings?created_at=gte." + since + "&select=id"),
+    restCount("contact_reveals?created_at=gte." + since + "&select=id"),
+    restCount("reports?status=eq.pending&select=id").catch(() => 0),
+  ]);
+  const recent = (await rest("GET", "listings?created_at=gte." + since + "&select=category,region&limit=1000")) || [];
+  const tally = (key) => {
+    const c = {};
+    recent.forEach((x) => { const k = x[key] || "-"; c[k] = (c[k] || 0) + 1; });
+    return Object.keys(c).sort((a, b) => c[b] - c[a]).slice(0, 5).map((k) => (key === "category" ? catTitle(k) : k) + " " + c[k]).join(", ") || "-";
+  };
+  return send(chat_id, [
+    EM.chart + " Statistika", "",
+    "E'lonlar: faol " + active + ", sotilgan " + sold,
+    "Foydalanuvchilar: " + users + " (Telegram orqali " + tgUsers + ")", "",
+    "So'nggi 7 kunda:",
+    "Yangi e'lonlar: " + new7,
+    "Raqam ochilishlari: " + reveals7,
+    "Kategoriya: " + tally("category"),
+    "Hudud: " + tally("region"), "",
+    "Kutilayotgan shikoyatlar: " + pending,
+  ].join("\n"));
+}
+
+async function fileReport(chat_id, from, idx, listingId) {
+  const reason = REPORT_REASONS[idx];
+  const l = reason ? await getListing(listingId) : null;
+  if (!l) return send(chat_id, "E'lon topilmadi.", { reply_markup: MENU });
+  if (!(await claimDaily("rep", from.id, REPORT_DAILY_LIMIT))) {
+    return send(chat_id, EM.warn + " Bugun juda ko'p shikoyat yubordingiz. Ertaga davom ettiring.", { reply_markup: MENU });
+  }
+  const prof = await ensureProfile(from, null, false);
+  const r = await fetch(SB_URL + "/rest/v1/reports", {
+    method: "POST",
+    headers: sbHeaders({ Prefer: "return=minimal" }),
+    body: JSON.stringify({ listing_id: l.id, reporter_id: prof.id, reason: reason }),
+  });
+  if (r.status === 409) return send(chat_id, "Siz bu e'lon haqida allaqachon shikoyat yuborgansiz. Ko'rib chiqamiz.", { reply_markup: MENU });
+  if (!r.ok) throw new Error("reports " + r.status);
+  await notifyAdmins(EM.flag + " Yangi shikoyat: " + reason + "\n\n" + listingLine(l), {
+    reply_markup: { inline_keyboard: [[{ text: "E'lonni o'chirish", callback_data: "adel:" + l.id }, { text: "Egasini bloklash", callback_data: "ablk:" + l.seller_id }]] },
+  });
+  return send(chat_id, EM.check + " Shikoyatingiz qabul qilindi. Rahmat, tekshiramiz.", { reply_markup: MENU });
+}
+
+async function adminListingView(chat_id, id) {
+  const l = await getListing(id);
+  if (!l) return send(chat_id, "E'lon topilmadi.");
+  const ps = (await rest("GET", "profiles?id=eq." + l.seller_id + "&select=full_name,phone,telegram_id")) || [];
+  const p = ps[0] || {};
+  return send(chat_id, listingLine(l) + "\nKod: " + (l.listing_code || "-") + "\nHolati: " + (l.status || "-") + "\n\nSotuvchi: " + (p.full_name || "-") + "\nTelefon: " + (p.phone || "-"), {
+    reply_markup: { inline_keyboard: [[{ text: "O'chirish", callback_data: "adel:" + l.id }, { text: "Egasini bloklash", callback_data: "ablk:" + l.seller_id }]] },
+  });
+}
+async function lookupByCode(chat_id, from, letters, digits) {
+  const cands = [letters + "-" + digits, letters + "-" + digits.padStart(6, "0")];
+  let found = null;
+  for (const c of cands) {
+    const rows = await rest("GET", "listings?listing_code=eq." + encodeURIComponent(c) + "&select=id,status");
+    if (rows && rows[0]) { found = rows[0]; break; }
+  }
+  if (!found) return send(chat_id, "Bunday kodli e'lon topilmadi.", { reply_markup: MENU });
+  const adm = await getAdminProfile(from.id).catch(() => null);
+  if (adm) return adminListingView(chat_id, found.id);
+  return showContact(chat_id, found.id, from);
+}
+
 async function showContact(chat_id, id, from) {
   const rows = await rest("GET", "listings?id=eq." + id + "&status=eq.active&select=id,seller_id,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region");
   const l = rows && rows[0];
   if (!l) return send(chat_id, "Bu e'lon topilmadi yoki allaqachon sotilgan.", { reply_markup: MENU });
-  const ps = await rest("GET", "profiles?id=eq." + l.seller_id + "&select=full_name,phone,telegram_id");
+  const ps = await rest("GET", "profiles?id=eq." + l.seller_id + "&select=full_name,phone,telegram_id,phone_verified,listings_count,sold_count,rating,rating_count");
   const p = ps && ps[0];
   const own = p && p.telegram_id && String(p.telegram_id) === String(from.id);
   if (!own) {
+    if (!(await isSubscribed(from.id))) return sendSubscribe(chat_id);
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const mine = (await rest("GET", "contact_reveals?telegram_id=eq." + from.id + "&created_at=gte." + encodeURIComponent(since) + "&select=listing_id")) || [];
     const seen = mine.some((x) => String(x.listing_id) === String(l.id));
@@ -577,8 +729,14 @@ async function showContact(chat_id, id, from) {
     }
   }
   const first = String((p && p.full_name) || "").trim().split(" ")[0] || "-";
-  const lines = [listingLine(l), "", EM.user + " Sotuvchi: " + first, EM.phone + " Telefon: " + ((p && p.phone) || "ko'rsatilmagan")];
-  return send(chat_id, lines.join("\n"), { reply_markup: MENU });
+  const lines = [listingLine(l), "", EM.user + " Sotuvchi: " + first];
+  if (p && p.phone_verified) lines.push(EM.check + " Telefon tasdiqlangan");
+  if (p && p.listings_count != null) lines.push(EM.chart + " Faoliyati: " + p.listings_count + " ta e'lon, " + (p.sold_count || 0) + " ta sotilgan");
+  if (p && p.rating_count > 0) lines.push(EM.star + " " + Number(p.rating).toFixed(1) + " (" + p.rating_count + " baho)");
+  lines.push(EM.phone + " Telefon: " + ((p && p.phone) || "ko'rsatilmagan"));
+  return send(chat_id, lines.join("\n"), {
+    reply_markup: { inline_keyboard: [[{ text: EM.flag + " Shikoyat", callback_data: "rep:" + l.id }, { text: EM.share + " Ulashish", url: tgShareUrl(l) }]] },
+  });
 }
 
 // ---------- Saytga kirish (bir martalik havola) ----------
@@ -621,6 +779,12 @@ async function publish(chat_id, from, d) {
     const prof = await ensureProfile(from, d.phone, d.phoneVerified);
     profileId = prof.id;
     fresh = prof.fresh;
+    let verified = !!d.phoneVerified;
+    try {
+      const vp = ((await rest("GET", "profiles?id=eq." + profileId + "&select=phone_verified")) || [])[0];
+      if (vp && vp.phone_verified) verified = true;
+    } catch (e) { /* ustun bo'lmasa ham davom etamiz */ }
+    d.verified = verified;
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const recent = await rest("GET", "listings?seller_id=eq." + profileId + "&created_at=gte." + encodeURIComponent(since) + "&select=id");
     if (recent && recent.length >= DAILY_LIMIT) {
@@ -656,10 +820,13 @@ async function publish(chat_id, from, d) {
     }
     await clearSession(tid);
 
-    let text = EM.party + " E'lon joylandi!" + (listing.listing_code ? " Kod: " + listing.listing_code : "") + "\n" + EM.link + " " + SITE_URL + "/?listing=" + listing.id;
+    let text = EM.party + " E'lon joylandi!" + (listing.listing_code ? " Kod: " + listing.listing_code : "") + "\n" + EM.link + " " + linkOf(listing.id);
     text += channelNote;
     if (failed.length) text += "\n\n" + EM.warn + " " + failed.length + " ta rasm yuklanmadi. Saytdan qo'shishingiz mumkin.";
-    await send(chat_id, text, { reply_markup: MENU });
+    await send(chat_id, text, { reply_markup: { inline_keyboard: [
+      [{ text: EM.share + " Telegram'da ulashish", url: tgShareUrl(listing) }, { text: EM.chat + " WhatsApp'da", url: waShareUrl(listing) }],
+      [{ text: catTitle(d.category) + " - boshqa e'lonlar", callback_data: "cat:" + d.category }],
+    ] } });
     if (fresh) {
       await send(chat_id, EM.key + " Saytda ham akkauntingiz ochildi. E'lonlaringizni boshqarish, xaridorlar savollariga javob berish va bildirishnoma olish uchun saytga kiring:", {
         reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", callback_data: "web" }]] },
@@ -693,6 +860,7 @@ function menuAction(text) {
 
 async function startListing(chat_id, from) {
   if (await isBlocked(from.id)) return send(chat_id, EM.warn + " Akkauntingiz qoidalar buzilgani uchun bloklangan.", { reply_markup: MENU });
+  if (!(await isSubscribed(from.id))) return sendSubscribe(chat_id);
   const p = await findProfile(from.id);
   const d = { hasPhone: !!(p && p.phone) };
   await saveSession(from.id, "type", d);
@@ -717,7 +885,11 @@ async function runMenu(action, chat_id, from) {
       reply_markup: { inline_keyboard: [[{ text: EM.key + " Saytga kirish", callback_data: "web" }]] },
     });
   }
-  if (action === "help") return send(chat_id, EM.phone + " Savol va takliflar uchun saytimizga kiring: " + SITE_URL, { reply_markup: MENU });
+  if (action === "help") {
+    return send(chat_id, EM.phone + " Yordam\n\n- E'lon kodini yozing (masalan M-000002): bot e'lonni topib beradi.\n- Savol yoki shikoyatingiz bo'lsa, adminga yozing. Javob shu yerga keladi.", {
+      reply_markup: { inline_keyboard: [[{ text: EM.mail + " Adminga yozish", callback_data: "sup" }], [{ text: "Saytga o'tish", url: SITE_URL }]] },
+    });
+  }
   return send(chat_id, EM.construction + " Bu bo'lim tez orada ishga tushadi.", { reply_markup: MENU });
 }
 
@@ -759,6 +931,8 @@ async function onMessage(msg) {
   }
   if (dbDown) return dbMsg();
   if (!session) {
+    const codeM = text.match(/^\s*([A-Za-z]{1,3})\s*-?\s*(\d{2,8})\s*$/);
+    if (codeM) return lookupByCode(chat_id, from, codeM[1].toUpperCase(), codeM[2]);
     return send(chat_id, "Quyidagi menyudan tanlang " + EM.down, { reply_markup: MENU });
   }
 
@@ -808,6 +982,24 @@ async function onMessage(msg) {
 
   if (!text) return send(chat_id, "Iltimos, so'ralgan ma'lumotni yuboring yoki /cancel yozing.");
 
+  if (step === "support") {
+    const okLimit = await claimDaily("sup", from.id, SUPPORT_DAILY_LIMIT);
+    await clearSession(from.id);
+    if (!okLimit) return send(chat_id, EM.warn + " Bugun juda ko'p xabar yubordingiz. Ertaga yozing.", { reply_markup: MENU });
+    const who = ((from.first_name || "") + " " + (from.last_name || "")).trim() || "Foydalanuvchi";
+    await notifyAdmins(EM.mail + " Yangi xabar:\n\n" + text.slice(0, 1500) + "\n\nKimdan: " + who + (from.username ? " @" + from.username : "") + " (ID " + from.id + ")", {
+      reply_markup: { inline_keyboard: [[{ text: "Javob berish", callback_data: "rpl:" + from.id }]] },
+    });
+    return send(chat_id, EM.check + " Xabaringiz adminga yuborildi. Javob shu yerga keladi.", { reply_markup: MENU });
+  }
+  if (step === "reply") {
+    const adm = await getAdminProfile(from.id).catch(() => null);
+    await clearSession(from.id);
+    if (!adm || !d.to) return;
+    await send(d.to, EM.mail + " Admin javobi:\n\n" + text.slice(0, 3000));
+    return send(chat_id, EM.check + " Javob yuborildi.", { reply_markup: MENU });
+  }
+
   if (step === "breed" || step === "gender" || step === "product") {
     if (text.length > 60) return send(chat_id, "Juda uzun. Qisqaroq yozing.");
     d[step] = text;
@@ -846,6 +1038,31 @@ async function onCallback(cq) {
     await answer();
     return sendSiteLogin(chat_id, from.id);
   }
+  if (data === "sub") {
+    if (await isSubscribed(from.id)) {
+      await answer("Rahmat!");
+      return send(chat_id, EM.check + " Rahmat! Endi menyudan tanlang " + EM.down, { reply_markup: MENU });
+    }
+    await answer("Siz hali kanalga obuna bo'lmagansiz.", true);
+    return;
+  }
+  if (data === "sup") {
+    await answer();
+    await saveSession(from.id, "support", {});
+    return send(chat_id, EM.mail + " Xabaringizni yozing. E'lon kodini ham yozsangiz bo'ladi (masalan: M-000002). Bekor qilish: /cancel");
+  }
+  if (data.indexOf("rep:") === 0) {
+    await answer();
+    const id = data.slice(4);
+    return send(chat_id, EM.flag + " Shikoyat sababini tanlang:", {
+      reply_markup: { inline_keyboard: REPORT_REASONS.map((r, i) => [{ text: r, callback_data: "repr:" + i + ":" + id }]) },
+    });
+  }
+  if (data.indexOf("repr:") === 0) {
+    await answer();
+    const parts = data.split(":");
+    return fileReport(chat_id, from, parseInt(parts[1], 10), parts[2]);
+  }
 
   // Kategoriyalar bo'yicha ko'rish
   if (data === "cats") {
@@ -860,10 +1077,15 @@ async function onCallback(cq) {
   }
 
   // Sotildi / o'chirish (sotuvchi)
-  if (/^(sold|del|soldok|delok|back):/.test(data)) {
+  if (/^(sold|del|soldok|delok|back|fresh):/.test(data)) {
     const id = data.split(":")[1];
     const l = await getListing(id);
     if (!l || !(await ownsListing(from.id, l))) { await answer("Bu e'lon sizniki emas yoki topilmadi.", true); return; }
+    if (data.indexOf("fresh:") === 0) {
+      await rest("PATCH", "listings?id=eq." + id, { updated_at: new Date().toISOString() }, "return=minimal");
+      await answer("Rahmat!");
+      return tg("editMessageText", { chat_id: chat_id, message_id: message_id, text: (cq.message.text || "") + "\n\n" + EM.check + " Rahmat, e'lon yangilandi." });
+    }
     if (data.indexOf("sold:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: confirmButtons("soldok", id, "Ha, sotildi") }); }
     if (data.indexOf("del:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: confirmButtons("delok", id, "Ha, o'chirish") }); }
     if (data.indexOf("back:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: myButtons(id) }); }
@@ -881,12 +1103,18 @@ async function onCallback(cq) {
   }
 
   // Admin amallari
-  if (/^(adm|adel|adelok|adis|ablk|ablkok|ano):?/.test(data)) {
+  if (/^(adm|adel|adelok|adis|ablk|ablkok|ano|rpl):?/.test(data)) {
     const adm = await getAdminProfile(from.id).catch(() => null);
     if (!adm) { await answer(); return; }
     const arg = data.split(":")[1];
     if (data === "adm:reports") { await answer(); return adminReports(chat_id); }
     if (data === "adm:recent") { await answer(); return adminRecent(chat_id); }
+    if (data === "adm:stats") { await answer(); return adminStats(chat_id); }
+    if (data.indexOf("rpl:") === 0) {
+      await answer();
+      await saveSession(from.id, "reply", { to: Number(arg) });
+      return send(chat_id, "Javobingizni yozing (bekor qilish: /cancel):");
+    }
     if (data === "ano:x") { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: { inline_keyboard: [] } }); }
     const yesNo = (yes, label) => ({ inline_keyboard: [[{ text: label, callback_data: yes + ":" + arg }, { text: "Yo'q", callback_data: "ano:x" }]] });
     if (data.indexOf("adel:") === 0) { await answer(); return tg("editMessageReplyMarkup", { chat_id: chat_id, message_id: message_id, reply_markup: yesNo("adelok", "Ha, o'chirish") }); }
@@ -1003,6 +1231,52 @@ async function onCallback(cq) {
   return answer();
 }
 
+// ---------- Kunlik vazifa: eskirgan e'lon eslatmasi va haftalik hisobot ----------
+async function dailyJob(q) {
+  const out = { eslatma: 0, hisobot: 0 };
+  try {
+    const now = Date.now();
+    const rows = (await rest("GET", "listings?status=eq.active&select=id,seller_id,created_at,updated_at,category,listing_type,breed,gender,weight_kg,product_name,quantity,unit,price,region&order=created_at.asc&limit=500")) || [];
+    const stale = rows.filter((l) => now - Date.parse(l.updated_at || l.created_at) >= STALE_DAYS * 86400000).slice(0, 100);
+    if (stale.length) {
+      const tids = await telegramIdsOf(Array.from(new Set(stale.map((l) => l.seller_id))));
+      for (const l of stale) {
+        const tid = tids[l.seller_id];
+        if (!tid) continue;
+        const stamp = String(l.updated_at || l.created_at).slice(0, 10);
+        if (!(await claimNotice("fresh:" + l.id + ":" + stamp))) continue;
+        await send(tid, EM.bell + " E'loningiz " + STALE_DAYS + " kundan beri yangilanmagan. Hali dolzarbmi?\n\n" + listingLine(l), { reply_markup: freshButtons(l.id) }).catch(() => {});
+        out.eslatma++;
+      }
+    }
+    if (new Date().getUTCDay() === 1 || (q && q.digest === "1")) {
+      const since = encodeURIComponent(new Date(now - 7 * 86400000).toISOString());
+      const reveals = (await rest("GET", "contact_reveals?created_at=gte." + since + "&select=listing_id&limit=1000")) || [];
+      if (reveals.length) {
+        const byListing = {};
+        reveals.forEach((r) => { byListing[r.listing_id] = (byListing[r.listing_id] || 0) + 1; });
+        const ids = Object.keys(byListing).slice(0, 100);
+        const ls = (await rest("GET", "listings?id=in.(" + ids.join(",") + ")&select=id,seller_id")) || [];
+        const bySeller = {};
+        ls.forEach((l) => { if (byListing[l.id]) bySeller[l.seller_id] = (bySeller[l.seller_id] || 0) + byListing[l.id]; });
+        const tids = await telegramIdsOf(Object.keys(bySeller));
+        const monday = new Date(now - ((new Date(now).getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10);
+        for (const sid of Object.keys(bySeller)) {
+          const tid = tids[sid];
+          if (!tid) continue;
+          if (!(await claimNotice("digest:" + tid + ":" + monday))) continue;
+          await send(tid, EM.chart + " Haftalik hisobot: o'tgan 7 kunda " + bySeller[sid] + " ta xaridor e'lon(lar)ingiz bo'yicha telefon raqamingizni oldi. Yangi e'lon qo'shib, ko'proq xaridorga chiqing!", { reply_markup: MENU }).catch(() => {});
+          out.hisobot++;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Kunlik vazifa xatosi:", redact(e.message));
+    out.xato = redact(e.message).slice(0, 120);
+  }
+  return out;
+}
+
 // ---------- Tekshiruv sahifasi (qiymatlarni ko'rsatmaydi) ----------
 async function diagnose() {
   const out = { bot: "ishlayapti" };
@@ -1015,7 +1289,7 @@ async function diagnose() {
     : (SB_KEY.indexOf("sb_secret_") === 0 || SB_KEY.indexOf("eyJ") === 0) ? "bor"
     : "NOTO'G'RI shaklda";
   if (out.supabase_url === "to'g'ri shaklda" && out.supabase_key === "bor") {
-    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id", "telegram_posts", "contact_reveals", "listings?select=plan", "profiles?select=blocked", "profiles?select=is_admin", "reports"];
+    const tables = ["bot_sessions", "bot_photos", "listings", "profiles", "profiles?select=telegram_id", "telegram_posts", "contact_reveals", "listings?select=plan", "profiles?select=blocked", "profiles?select=is_admin", "reports", "bot_notices"];
     for (const t of tables) {
       try { await rest("GET", (t.indexOf("?") >= 0 ? t + "&limit=1" : t + "?select=*&limit=1")); out["jadval_" + t.replace("?select=", ".")] = "ishlayapti"; }
       catch (e) { out["jadval_" + t.replace("?select=", ".")] = "XATO: " + String(e.message).replace(/\s+/g, " ").slice(0, 140); }
@@ -1023,23 +1297,31 @@ async function diagnose() {
   }
   const envState = (k) => (!(k in process.env) ? "yo'q" : (String(process.env[k]).trim() ? "bor" : "BO'SH"));
   out.kanal_ozgaruvchilari = { CHANNEL_USERNAME: envState("CHANNEL_USERNAME"), TELEGRAM_CHANNEL: envState("TELEGRAM_CHANNEL"), kodda_yozilgan: CHANNEL_FALLBACK ? "bor" : "yo'q" };
-  if (!CHANNEL) {
-    out.kanal = "sozlanmagan";
-  } else if (TOKEN) {
+  const checkChannel = async (ch) => {
+    if (!ch) return "sozlanmagan";
+    if (!TOKEN) return "token yo'q";
     try {
       const me = await botInfo();
-      const m = await tg("getChatMember", { chat_id: CHANNEL, user_id: me.id });
-      out.kanal = m.ok
+      const m = await tg("getChatMember", { chat_id: ch, user_id: me.id });
+      return m.ok
         ? (m.result.status === "administrator" && m.result.can_post_messages !== false ? "tayyor (bot admin)" : "bot admin emas yoki post yuborish huquqi yo'q: " + m.result.status)
         : "XATO: " + String(m.description || "").slice(0, 100);
-    } catch (e) { out.kanal = "XATO"; }
-  }
+    } catch (e) { return "XATO"; }
+  };
+  out.kanal = await checkChannel(CHANNEL);
+  out.kanal_agro = CHANNEL_AGRO ? await checkChannel(CHANNEL_AGRO) : "sozlanmagan (fermer e'lonlari asosiy kanalga ketadi)";
+  out.obuna_sharti = REQUIRE_SUBSCRIPTION ? (CHANNEL && CHANNEL.charAt(0) === "@" ? "yoqilgan" : "o'chiq (kanal havolasi @ bilan boshlanmagan)") : "o'chirilgan";
   return out;
 }
 
 // ---------- Kirish nuqtasi ----------
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
+    const q = req.query || {};
+    if (q.job === "daily") {
+      if (process.env.CRON_SECRET && req.headers.authorization !== "Bearer " + process.env.CRON_SECRET) return res.status(401).send("unauthorized");
+      return res.status(200).json(await dailyJob(q));
+    }
     return res.status(200).json(await diagnose());
   }
   if (req.headers["x-telegram-bot-api-secret-token"] !== SECRET) {
